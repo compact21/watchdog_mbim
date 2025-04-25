@@ -1,6 +1,8 @@
 #!/bin/sh
-# Daemon for mbim. Restart modem.
-# autor https://github.com/yosh781 and some changes made by "compact21"
+# Daemon for mbim. Restart LTE connection
+#
+# main author https://github.com/yosh781
+# and some changes https://github.com/compact21
 
 trap "logger 'Modem watchdog stopped'; exit 0" INT TERM
 
