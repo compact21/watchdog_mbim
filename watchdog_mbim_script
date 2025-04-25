@@ -1,0 +1,43 @@
+#!/bin/sh
+# Daemon for mbim. Restart modem.
+# autor https://github.com/yosh781 and some changes made by "compact21"
+
+trap "logger 'Modem watchdog stopped'; exit 0" INT TERM
+
+if ! uci -q get network.wan >/dev/null; then
+    logger "Interface wan not found in network config, exiting"
+    exit 0
+fi
+
+LTEPROTO=$(uci -q get network.wan.proto)
+if [ "$LTEPROTO" != "mbim" ]; then
+    logger "WAN interface is not using mbim, exiting"
+    exit 0
+fi
+
+AUTOCONNECT=$(uci -q get network.wan.autoconnect)
+if [ "$AUTOCONNECT" != "1" ]; then
+    logger "WAN autoconnect is disabled, exiting"
+    exit 0
+fi
+
+while true; do
+    LTESTATUS=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status)
+    LTEERROR=$?
+    LTEFIND=$(echo ${LTESTATUS} | grep "\"connected\"" | wc -l)
+
+    if [ ${LTEERROR} -ne 0 ]; then
+        logger "Uqmi not response into 20 sec exec ifdown wan; ifup wan"
+        ifdown wan && ifup wan
+    fi
+
+    if [ ${LTEFIND} -eq "0" ]; then
+        logger "Modem is not connected to network, trying to reconnect..."
+        ifdown wan && ifup wan
+    fi
+
+    sleep 20
+
+done
+
+exit 0
