@@ -1,11 +1,13 @@
 #!/bin/sh
 # Daemon for mbim. Restart LTE connection
 #
-# main author https://github.com/yosh781
-# and some changes https://github.com/compact21
+# Thanks to the work of "yosh781" on "https://github.com/yosh781"
+# Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
 
-trap "logger 'exec: /usr/bin/watchdog_mbim Modem watchdog stopped'; exit 0" INT TERM
+trap "logger 'exec: /root/watchdog_mbim: watchdog stopped'; exit 0" INT TERM
 
+
+# waiting to understand if there is a better option at procd level
 # for 600 sec from boot not exec nothing
 get_uptime_s()
 {
@@ -25,48 +27,61 @@ case "$sleep_time" in
     -*|'') ;; # do nothing if sleep_time is negative or empty string
     *) sleep "$sleep_time"
 esac
+# end of the wait
 
 
 LTEINTERFACE=$(uci -q get network.wan)
 if [ ${LTEINTERFACE} != "interface" ]; then
-    logger "exec: /usr/bin/watchdog_mbim Interface wan not found in network config, exiting"
+    logger "exec: /root/watchdog_mbim: Interface wan not found in network config"
     exit 0
 fi
 
 LTEPROTO=$(uci -q get network.wan.proto)
 if [ ${LTEPROTO} != "mbim" ]; then
-    logger "exec: /usr/bin/watchdog_mbim WAN interface is not using mbim, exiting"
+    logger "exec: /root/watchdog_mbim: WAN interface is not using mbim"
     exit 0
 fi
 
 AUTOCONNECT=$(uci -q get network.wan.autoconnect)
 if [ ${AUTOCONNECT} != "1" ]; then
-    logger "exec: /usr/bin/watchdog_mbim WAN autoconnect is disabled, exiting"
+    logger "exec: /root/watchdog_mbim: WAN autoconnect is disabled"
     exit 0
 fi
 
 while true; do
+
+    # theoretically the "uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status"
+    # command should respond in this time:
+    #
+    # time uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status
+    # "connected"
+    # real    0m 0.25s
+    # user    0m 0.00s
+    # sys     0m 0.00s
+    #
+    # so well below the set timeout
+     
     LTESTATUS=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status)
     LTEERROR=$?
     LTEFIND=$(echo ${LTESTATUS} | grep "\"connected\"" | wc -l)
 
+    # uqmi not response into 20 sec
     if [ ${LTEERROR} -ne 0 ]; then
-        LTE123=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-device-operating-mode)
-        logger "exec: /usr/bin/watchdog_mbim ${LTE123} uqmi not response into 20 sec exec ifdown wan; ifup wan"
+        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
     fi
 
+    # uqmi does not return "connected"
     if [ ${LTEFIND} -eq "0" ]; then
-        LTE123=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-device-operating-mode)
-        logger "exec: /usr/bin/watchdog_mbim ${LTE123} lost connection detected exec ifdown wan; ifup wan"
+        logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
+    #else
+    #    logger "exec: /root/watchdog_mbim: ${LTESTATUS} ${LTEERROR} ${LTEFIND}"
     fi
 
-    sleep 10
-
-    #LTE123=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-device-operating-mode)
-    #logger "exec: /usr/bin/watchdog_mbim ${LTESTATUS} ${LTEERROR} ${LTEFIND} ${LTE123}"    
+    sleep 20
 
 done
 
 exit 0
+
