@@ -4,22 +4,27 @@
 # main author https://github.com/yosh781
 # and some changes https://github.com/compact21
 
-trap "logger 'Modem watchdog stopped'; exit 0" INT TERM
+trap "logger 'exec: /usr/bin/watchdog_mbim Modem watchdog stopped'; exit 0" INT TERM
 
-if ! uci -q get network.wan >/dev/null; then
-    logger "Interface wan not found in network config, exiting"
+if [ $(awk -F "." '{print $1}' /proc/uptime) -lt "600" ]; then
+    exit 0
+fi
+
+LTEINTERFACE=$(uci -q get network.wan)
+if [ ${LTEINTERFACE} != "interface" ]; then
+    logger "exec: /usr/bin/watchdog_mbim Interface wan not found in network config, exiting"
     exit 0
 fi
 
 LTEPROTO=$(uci -q get network.wan.proto)
-if [ "$LTEPROTO" != "mbim" ]; then
-    logger "WAN interface is not using mbim, exiting"
+if [ ${LTEPROTO} != "mbim" ]; then
+    logger "exec: /usr/bin/watchdog_mbim WAN interface is not using mbim, exiting"
     exit 0
 fi
 
 AUTOCONNECT=$(uci -q get network.wan.autoconnect)
-if [ "$AUTOCONNECT" != "1" ]; then
-    logger "WAN autoconnect is disabled, exiting"
+if [ ${AUTOCONNECT} != "1" ]; then
+    logger "exec: /usr/bin/watchdog_mbim WAN autoconnect is disabled, exiting"
     exit 0
 fi
 
@@ -29,16 +34,21 @@ while true; do
     LTEFIND=$(echo ${LTESTATUS} | grep "\"connected\"" | wc -l)
 
     if [ ${LTEERROR} -ne 0 ]; then
-        logger "Uqmi not response into 20 sec exec ifdown wan; ifup wan"
+        LTE123=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-device-operating-mode)
+        logger "exec: /usr/bin/watchdog_mbim ${LTE123} uqmi not response into 20 sec exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
     fi
 
     if [ ${LTEFIND} -eq "0" ]; then
-        logger "Modem is not connected to network, trying to reconnect..."
+        LTE123=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-device-operating-mode)
+        logger "exec: /usr/bin/watchdog_mbim ${LTE123} lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
     fi
 
-    sleep 20
+    sleep 10
+
+    #LTE123=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-device-operating-mode)
+    #logger "exec: /usr/bin/watchdog_mbim ${LTESTATUS} ${LTEERROR} ${LTEFIND} ${LTE123}"    
 
 done
 
