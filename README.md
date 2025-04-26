@@ -25,5 +25,4 @@ chmod +x /root/modem_watchdog_mbim
 
 Enabe and start service
 
-service watchdog_mbim enable
-service watchdog_mbim start
+service watchdog_mbim enable; service watchdog_mbim start
