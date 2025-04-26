@@ -23,8 +23,7 @@ chmod +x /root/modem_watchdog_mbim
 
 Add "/root/" and "/etc/init.d/watchdog_mbim" to /etc/sysupgrade.conf preserved sysupgrade
 
-echo "/root/" >> /etc/sysupgrade.conf
-echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
+echo "/root/" >> /etc/sysupgrade.conf ; echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
 
 Enabe and start service
 
