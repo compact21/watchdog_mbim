@@ -13,3 +13,8 @@ chmod +x /etc/init.d/watchdog_mbim
 Move script "watchdog_mbim_script" in /usr/bin/watchdog_mbim
 
 chmod +x /usr/bin/modem_watchdog_mbim
+
+Enabe and start service
+
+service watchdog_mbim enable; service watchdog_mbim start
+
