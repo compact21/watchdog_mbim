@@ -1,7 +1,7 @@
 #!/bin/sh
 # Daemon for mbim. Restart LTE connection
 #
-# Thanks to the work of "yosh781" on "https://github.com/yosh781"
+# Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
 # Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
 
 trap "logger 'exec: /root/watchdog_mbim: watchdog stopped'; exit 0" INT TERM
