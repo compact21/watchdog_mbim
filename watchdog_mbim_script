@@ -6,6 +6,7 @@
 
 trap "logger 'exec: /usr/bin/watchdog_mbim Modem watchdog stopped'; exit 0" INT TERM
 
+# for 600 sec from boot not exec nothing
 if [ $(awk -F "." '{print $1}' /proc/uptime) -lt "600" ]; then
     exit 0
 fi
