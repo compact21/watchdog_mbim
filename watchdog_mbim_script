@@ -7,11 +7,25 @@
 trap "logger 'exec: /usr/bin/watchdog_mbim Modem watchdog stopped'; exit 0" INT TERM
 
 # for 600 sec from boot not exec nothing
-while true; do
-    if [ $(awk -F "." '{print $1}' /proc/uptime) -lt "600" ]; then
-    sleep 1
-    fi
-done
+get_uptime_s()
+{
+        local __uptime
+        read -r __uptime _ < /proc/uptime &&
+        __uptime="${__uptime%.*}" &&
+        case "${__uptime}" in
+                ''|*[!0-9]*) false ;;
+                *) :
+        esac || { reg_failure "Failed to get uptime from /proc/uptime."; eval "${1}"=0; return 1; }
+        eval "${1}"='${__uptime:-0}'
+}
+
+get_uptime_s uptime_s
+sleep_time=$((600-uptime_s))
+case "$sleep_time" in
+    -*|'') ;; # do nothing if sleep_time is negative or empty string
+    *) sleep "$sleep_time"
+esac
+
 
 LTEINTERFACE=$(uci -q get network.wan)
 if [ ${LTEINTERFACE} != "interface" ]; then
