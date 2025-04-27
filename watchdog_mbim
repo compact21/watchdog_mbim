@@ -27,7 +27,12 @@ stop_service() {
     logger 'exec: /root/watchdog_mbim: watchdog stopped'
 }
 
+reload_service() {
+    stop
+    start
+}
+
 service_triggers() {
-    procd_add_interface_trigger "interface.*.up" "wan" /etc/init.d/watchdog start
-    procd_add_interface_trigger "interface.*.down" "wan" /etc/init.d/watchdog stop; /etc/init.d/watchdog start
+    procd_add_interface_trigger "interface.*.up" "wan" /etc/init.d/watchdog reload
+    #procd_add_interface_trigger "interface.*.down" "wan" /etc/init.d/watchdog stop; /etc/init.d/watchdog start
 }
