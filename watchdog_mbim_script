@@ -65,19 +65,21 @@ while true; do
     LTEERROR=$?
     LTEFIND=$(echo ${LTESTATUS} | grep "\"connected\"" | wc -l)
 
-    # uqmi not response into 20 sec
-    if [ ${LTEERROR} -ne 0 ]; then
-        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
-        ifdown wan && ifup wan
-    fi
-
     # uqmi does not return "connected"
     if [ ${LTEFIND} -eq "0" ]; then
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
-    #else
-    #    logger "exec: /root/watchdog_mbim: ${LTESTATUS} ${LTEERROR} ${LTEFIND}"
+        break
     fi
+
+    # uqmi not response into 20 sec
+    if [ ${LTEERROR} -ne 0 ]; then
+        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
+        ifdown wan && ifup wan
+        break
+    fi
+
+    logger "exec: /root/watchdog_mbim: ${LTESTATUS} ${LTEERROR} ${LTEFIND}"
 
     sleep 20
 
