@@ -4,7 +4,7 @@
 # Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
 # Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
 
-trap "logger 'exec: /root/watchdog_mbim: watchdog stopped'; exit 0" INT TERM
+trap "exit 0" INT TERM
 
 
 # waiting to understand if there is a better option at procd level
@@ -17,8 +17,7 @@ get_uptime_s()
         case "${__uptime}" in
                 ''|*[!0-9]*) false ;;
                 *) :
-        #esac || { reg_failure "Failed to get uptime from /proc/uptime."; eval "${1}"=0; return 1; }
-        esac || { logger "exec: /root/watchdog_mbim: Failed to get uptime from /proc/uptime."; exit 1 }
+        esac || { logger "exec: /root/watchdog_mbim: Failed to get uptime from /proc/uptime."; return 1; }
         eval "${1}"='${__uptime:-0}'
 }
 
@@ -84,5 +83,5 @@ while true; do
 
 done
 
-#exit 0
+exit 0
 
