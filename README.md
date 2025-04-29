@@ -13,18 +13,16 @@ to /etc/sysupgrade.conf so that they are preserved by sysupgrade
 
 What to do:
 
-Move script "watchdog_mbim" in /etc/init.d/watchdog_mbim
-
+<
+cd /tmp
+wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim
+wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim_script
+mv watchdog_mbim /etc/init.d/watchdog_mbim
+mv watchdog_mbim_script /root/watchdog_mbim
 chmod +x /etc/init.d/watchdog_mbim
-
-Move script "watchdog_mbim_script" in /root
-
 chmod +x /root/modem_watchdog_mbim
-
-Add "/root/" and "/etc/init.d/watchdog_mbim" to /etc/sysupgrade.conf preserved sysupgrade
-
-echo "/root/" >> /etc/sysupgrade.conf ; echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
-
-Enabe and start service
-
-service watchdog_mbim enable; service watchdog_mbim start
+echo "/root/" >> /etc/sysupgrade.conf
+echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
+service watchdog_mbim enable
+service watchdog_mbim start
+>
