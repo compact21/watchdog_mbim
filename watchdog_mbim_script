@@ -24,7 +24,18 @@ if [ ${AUTOCONNECT} != "1" ]; then
     exit 0
 fi
 
+count=0
+
 while true; do
+
+count=$(($count+1))
+
+    # if this file exists block flow exit 0
+    if [ -f /tmp/watchdog_mbim_block ]; then
+        logger "exec: /root/watchdog_mbim: the file /tmp/watchdog_mbim_block exists; service watchdog stop; exit 0"
+        service watchdog stop
+        exit 0
+    fi
 
     # theoretically the "uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status"
     # command should respond in this time:
@@ -49,7 +60,7 @@ while true; do
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
         sleep 40
-        break
+        exit 0
     fi
 
     # uqmi not response into 20 sec
@@ -58,11 +69,13 @@ while true; do
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
         sleep 40
-        break
+        exit 0
     fi
 
-    # debug
-    #logger "exec: /root/watchdog_mbim: ${LTESTATUS} ${LTEERROR} ${LTEFIND}"
+    # if this file exists show debug interactions
+    if [ -f /tmp/watchdog_mbim_debug ]; then                                       
+        logger "exec: /root/watchdog_mbim debug LTESTATUS=${LTESTATUS} LTEERROR=${LTEERROR} LTEFIND=${LTEFIND} count=${count
+    fi
 
     #
     # idle time between two connectivity checks LTEFIND=1 or LTEERROR=0
@@ -76,3 +89,4 @@ while true; do
 
 done
 
+exit 0
