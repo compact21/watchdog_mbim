@@ -54,17 +54,20 @@ start_service() {
 }
 
 stop_service() {
-        #killall watchdog_mbim
-        kill $(cat $PID_FILE)
-        rm $PID_FILE
-        logger 'exec: /root/watchdog_mbim: watchdog stopped'
+        if [ -f $PID_FILE ]; then
+                kill $(cat $PID_FILE)
+                rm $PID_FILE
+                logger 'exec: /root/watchdog_mbim: watchdog stopped'
+        else
+                logger 'exec: /root/watchdog_mbim: watchdog not started'
+                exit 1
+        fi
 }
 
 reload_service() {
         logger 'exec: /root/watchdog_mbim: watchdog reload'
         stop_service
         start_service
-    
 }
 
 service_triggers() {
