@@ -8,7 +8,7 @@ Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sampl
 
 If anyone wants to contribute, they know how to contact me... (see Openwrt forum)
 
-I prefer to put all the scripts in root as I don't need to add anything else
+I prefer to put all the scripts in "/root" directory as I don't need to add anything else
 to /etc/sysupgrade.conf so that they are preserved by sysupgrade
 
 What to do:
