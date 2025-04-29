@@ -6,30 +6,6 @@
 
 trap "exit 0" INT TERM
 
-
-# waiting to understand if there is a better option at procd level
-# for 600 sec from boot not exec nothing
-get_uptime_s()
-{
-        local __uptime
-        read -r __uptime _ < /proc/uptime &&
-        __uptime="${__uptime%.*}" &&
-        case "${__uptime}" in
-                ''|*[!0-9]*) false ;;
-                *) :
-        esac || { logger "exec: /root/watchdog_mbim: Failed to get uptime from /proc/uptime."; return 1; }
-        eval "${1}"='${__uptime:-0}'
-}
-
-get_uptime_s uptime_s
-sleep_time=$((600-uptime_s))
-case "$sleep_time" in
-    -*|'') ;; # do nothing if sleep_time is negative or empty string
-    *) sleep "$sleep_time"
-esac
-# end of the wait
-
-
 LTEINTERFACE=$(uci -q get network.wan)
 if [ ${LTEINTERFACE} != "interface" ]; then
     logger "exec: /root/watchdog_mbim: Interface wan not found in network config"
@@ -59,8 +35,10 @@ while true; do
     # user    0m 0.00s
     # sys     0m 0.00s
     #
-    # so well below the set timeout
-     
+    # so well below the set timeout, i preferred to set a high timeout
+    # 20000 msec = 20 seconds in order to reduce any micro-disconnection anomalies.
+    #
+
     LTESTATUS=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status)
     LTEERROR=$?
     LTEFIND=$(echo ${LTESTATUS} | grep "\"connected\"" | wc -l)
@@ -69,6 +47,8 @@ while true; do
     if [ ${LTEFIND} -eq "0" ]; then
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
+        # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
+        sleep 40
         break
     fi
 
@@ -76,14 +56,22 @@ while true; do
     if [ ${LTEERROR} -ne 0 ]; then
         logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
+        # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
+        sleep 40
         break
     fi
 
     logger "exec: /root/watchdog_mbim: ${LTESTATUS} ${LTEERROR} ${LTEFIND}"
 
+    #
+    # idle time between two connectivity checks LTEFIND=1 or LTEERROR=0
+    # never exits the cycle "while true; do; done"
+    #
     sleep 20
+    #
+    # except for start,stop,reload service events
+    # service wathdog_mbim stop/start/reload
+    #
 
 done
-
-exit 0
 
