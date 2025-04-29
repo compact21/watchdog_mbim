@@ -61,7 +61,8 @@ while true; do
         break
     fi
 
-    logger "exec: /root/watchdog_mbim: ${LTESTATUS} ${LTEERROR} ${LTEFIND}"
+    # debug
+    #logger "exec: /root/watchdog_mbim: ${LTESTATUS} ${LTEERROR} ${LTEFIND}"
 
     #
     # idle time between two connectivity checks LTEFIND=1 or LTEERROR=0
