@@ -13,7 +13,6 @@ to /etc/sysupgrade.conf so that they are preserved by sysupgrade
 
 What to do:
 
-
 <code>
 cd /tmp
 wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim
