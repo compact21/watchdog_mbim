@@ -6,9 +6,7 @@ START=99
 
 PROGRAM="/root/watchdog_mbim"
 
-# create pid file
 PID_FILE="/var/run/watchdog_mbim.pid"
-touch $PID_FILE
 
 boot() {
         #
@@ -44,7 +42,7 @@ boot() {
 
 start_service() {
         procd_open_instance
-        procd_set_param command $PROGRAM --pidfile "$PID_FILE"
+        procd_set_param command $PROGRAM
         procd_set_param pidfile "$PID_FILE"
         procd_set_param respawn
         procd_set_param stdout 1
@@ -54,20 +52,7 @@ start_service() {
 }
 
 stop_service() {
-        if [ -f $PID_FILE ]; then
-                kill $(cat $PID_FILE)
-                rm $PID_FILE
-                logger 'exec: /root/watchdog_mbim: watchdog stopped'
-        else
-                logger 'exec: /root/watchdog_mbim: watchdog not started'
-                exit 1
-        fi
-}
-
-reload_service() {
-        logger 'exec: /root/watchdog_mbim: watchdog reload'
-        stop_service
-        start_service
+        logger 'exec: /root/watchdog_mbim: watchdog stopped'
 }
 
 service_triggers() {
