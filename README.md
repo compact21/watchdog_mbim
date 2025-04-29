@@ -13,7 +13,8 @@ to /etc/sysupgrade.conf so that they are preserved by sysupgrade
 
 What to do:
 
-<
+
+<code>
 cd /tmp
 wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim
 wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim_script
@@ -25,4 +26,4 @@ echo "/root/" >> /etc/sysupgrade.conf
 echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
 service watchdog_mbim enable
 service watchdog_mbim start
->
+</code>
