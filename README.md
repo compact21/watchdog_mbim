@@ -1,12 +1,10 @@
-# Modem and network restart daemon for connecting with proto MBIM for Openwrt.
+# Watchdog for restart connecting with proto MBIM for Openwrt.
 
 I test on my Openwrt LTE5398-M904
 
-Thanks to the work of "yosh781" on "https://github.com/yosh781"
+Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
 
 Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
-
-If anyone wants to contribute, they know how to contact me... (see Openwrt forum)
 
 I prefer to put all the scripts in "/root" directory as I don't need to add anything else
 to /etc/sysupgrade.conf so that they are preserved by sysupgrade
