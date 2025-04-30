@@ -59,7 +59,7 @@ count=$(($count+1))
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
-        sleep 40
+        sleep 180
         exit 0
     fi
 
@@ -68,7 +68,7 @@ count=$(($count+1))
         logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
-        sleep 40
+        sleep 180
         exit 0
     fi
 
