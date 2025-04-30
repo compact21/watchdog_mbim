@@ -68,5 +68,5 @@ service_triggers() {
         #
         # and as a consequence of this it should restart the service
         #
-        procd_add_interface_trigger "interface.*.up" "wan" /etc/init.d/watchdog reload
+        procd_add_interface_trigger "interface.*.up" "wan" service watchdog_mbim restart
 }
