@@ -4,6 +4,7 @@
 # Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
 # Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
 
+# show this "https://forum.openwrt.org/t/qmi-ec25-v-verizon-problems/145970"
 #set -x; # debug
 
 trap "exit 0" INT TERM
