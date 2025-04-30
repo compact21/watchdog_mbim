@@ -24,3 +24,11 @@ echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
 service watchdog_mbim enable
 service watchdog_mbim start
 </code>
+
+If you want, as in my case, to have the daemon start after a certain time from the router startup,
+I suggest you install the "at" package and add this to your /etc/rc.local file:
+
+<code>
+echo "service watchdog_mbim enable; service watchdog_mbim start" | at now+10minutes
+</code>
+
