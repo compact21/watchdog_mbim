@@ -4,6 +4,8 @@
 # Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
 # Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
 
+#set -x; # debug
+
 trap "exit 0" INT TERM
 
 LTEINTERFACE=$(uci -q get network.wan)
@@ -50,7 +52,7 @@ count=$(($count+1))
     # 20000 msec = 20 seconds in order to reduce any micro-disconnection anomalies.
     #
 
-    LTESTATUS=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status)
+    LTESTATUS=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
     LTEERROR=$?
     LTEFIND=$(echo ${LTESTATUS} | grep "\"connected\"" | wc -l)
 
@@ -60,7 +62,7 @@ count=$(($count+1))
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
         sleep 180
-        exit 0
+        break
     fi
 
     # uqmi not response into 20 sec
@@ -69,7 +71,7 @@ count=$(($count+1))
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
         sleep 180
-        exit 0
+        break
     fi
 
     # if this file exists show debug interactions
@@ -79,14 +81,9 @@ count=$(($count+1))
 
     #
     # idle time between two connectivity checks LTEFIND=1 or LTEERROR=0
-    # never exits the cycle "while true; do; done"
     #
     sleep 20
-    #
-    # except for start,stop,reload service events
-    # service wathdog_mbim stop/start/reload
-    #
-
+    
 done
 
 exit 0
