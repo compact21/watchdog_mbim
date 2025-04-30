@@ -36,7 +36,6 @@ PID_FILE="/var/run/watchdog_mbim.pid"
         #
         # Wait 600 seconds
         #
-        #logger 'exec: /root/watchdog_mbim: watchdog suspend 600 seconds'
         #ubus -t 600 wait_for network.interface network.loopback 2>/dev/null
         #rc_procd start_service
 #}
@@ -50,11 +49,6 @@ start_service() {
         procd_set_param stdout 1
         procd_set_param stderr 1
         procd_close_instance
-        logger 'exec: /root/watchdog_mbim: watchdog started'
-}
-
-stop_service() {
-        logger 'exec: /root/watchdog_mbim: watchdog stopped'
 }
 
 service_triggers() {
