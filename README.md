@@ -37,7 +37,7 @@ I suggest you install the "at" package and edit the /etc/rc.local file which wil
 service watchdog_mbim disable
 service watchdog_mbim stop
 
-echo "service watchdog_mbim enable; service watchdog_mbim start" | at now+10minutes
+echo "service watchdog_mbim start; service watchdog_mbim enable" | at now+10minutes
 
 exit 0
 </code>
