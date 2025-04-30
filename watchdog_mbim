@@ -8,7 +8,9 @@ PROGRAM="/root/watchdog_mbim"
 
 PID_FILE="/var/run/watchdog_mbim.pid"
 
-boot() {
+# if you want to delay the daemon startup see Readme
+#
+#boot() {
         #
         # from "https://forum.openwrt.org/t/solved-start-init-script-at-boot-after-localhost-is-ready/11507"
         #
@@ -34,10 +36,10 @@ boot() {
         #
         # Wait 600 seconds
         #
-        logger 'exec: /root/watchdog_mbim: watchdog suspend 600 seconds'
-        ubus -t 600 wait_for network.interface network.loopback 2>/dev/null
-        rc_procd start_service
-}
+        #logger 'exec: /root/watchdog_mbim: watchdog suspend 600 seconds'
+        #ubus -t 600 wait_for network.interface network.loopback 2>/dev/null
+        #rc_procd start_service
+#}
 
 
 start_service() {
