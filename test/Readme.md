@@ -2,6 +2,8 @@
 
 just for my future reference (as I said I'm not a good programmer)
 
+show this: "https://greenwebpage.com/community/how-to-use-break-and-continue-when-working-with-loops-in-bash/"
+
 run test_simple (without interruptions only for testing)
 <code>
 0
