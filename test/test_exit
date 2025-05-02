@@ -1,0 +1,16 @@
+#!/bin/sh
+count=0
+
+echo "${count}"
+
+echo "start while"
+while [ ${count} -le 10 ]; do
+echo "${count}"
+        if [ ${count} -eq 7 ]; then
+                exit 0
+        fi
+count=$(($count+1))
+done
+echo "stop while"
+
+echo "${count}"
