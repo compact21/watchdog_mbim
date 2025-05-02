@@ -19,17 +19,11 @@ PID_FILE="/var/run/watchdog_mbim.pid"
         # in order to avoid initial "race conditions"
         #
         # It's a dirty solution because for 600 seconds from boot the service will respond
-        # in an anomalous way whether it is in:
-        #
-        # "running" state
-        # or
-        # "inactive" state = stopped
+        # in an anomalous way whether it is in "running" or "inactive" state
         #
         # show command:
         #
-        # service watchdog_mbim status
-        # or
-        # service watchdog_mbim info
+        # service watchdog_mbim status; service watchdog_mbim info
         #
         # I preferred to use the "loopback" interface because I am not sure if the "wan" interface
         # is in an operational state at boot
@@ -43,6 +37,7 @@ PID_FILE="/var/run/watchdog_mbim.pid"
 
 start_service() {
         procd_open_instance
+        procd_set_param term_timeout 240
         procd_set_param command $PROGRAM
         procd_set_param pidfile "$PID_FILE"
         procd_set_param respawn
@@ -62,5 +57,7 @@ service_triggers() {
         #
         # and as a consequence of this it should restart the service
         #
-        procd_add_interface_trigger "interface.*.up" "wan" service watchdog_mbim restart
+        procd_open_trigger
+        procd_add_interface_trigger "interface.*.up" "wan" /etc/init.d/watchdog_mbim restart
+        procd_close_trigger
 }
