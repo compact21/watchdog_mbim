@@ -1,4 +1,7 @@
 #!/bin/sh
+#
+# WARNING "attention it will go on forever until it is killed"
+#
 count=0
 
 echo "${count}"
