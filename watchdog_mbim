@@ -39,8 +39,10 @@ start_service() {
         procd_open_instance
         
         # from "https://github.com/openNDS/openNDS/blob/master/linux_openwrt/opennds/files/etc/init.d/opennds"
+        #      "https://github.com/openwrt/openwrt/issues/5898"
         # solves "Instance not stopped SIGTERM, sending SIGKILL instead" given 180 seconds wait after doing ifdown wan && ifup wan
         procd_set_param term_timeout 240
+        # various sources on: "https://github.com/search?q=repo%3Aopenwrt%2Fpackages+procd_set_param+term_timeout&type=code"
         
         procd_set_param command $PROGRAM
         procd_set_param pidfile "$PID_FILE"
