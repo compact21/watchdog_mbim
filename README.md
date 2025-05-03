@@ -9,9 +9,11 @@ Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sampl
 I prefer to put all the scripts in "/root" directory as I don't need to add anything else
 to /etc/sysupgrade.conf so that they are preserved by sysupgrade
 
-# Watchdog service always running
+# Watchdog service always running ...
 
-What to do:
+Service always active and always enabled (script daemon):
+
+<b>What to do:</b>
 
 <code>
 cd /tmp
@@ -27,14 +29,22 @@ service watchdog_mbim enable
 service watchdog_mbim start
 </code>
 
-# Watchdog disable service and start this after a certain time
+# Watchdog disable service and start this after a certain time ...
 
 If you want, as in my case, to have the daemon start after a certain time from the router startup,
 I suggest you install the "at" package ...
 
+<b>0. add "at" package with the commands:</b>
+   
+<code>
+opkg update
+opkg install at
+</code>
+
+
 The instructions below are valid if you want to deactivate the service and have it start after a certain time
 
-1. edit the /etc/rc.local file which will look something like this:
+<b>1. edit the /etc/rc.local file which will look something like this:</b>
 
 <code>
 # Put your custom commands here that should be executed once
@@ -45,7 +55,7 @@ echo "service watchdog_mbim start" | at now+10minutes
 exit 0
 </code>
 
-2. What to do:
+<b>2. What to do:</b>
 
 <code>
 cd /tmp
