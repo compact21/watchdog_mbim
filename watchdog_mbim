@@ -20,6 +20,8 @@ boot() {
         #
         # service | grep watchdog_mbim
         # /etc/init.d/watchdog_mbim         disabled         running
+        #
+        # show this document: "https://github.com/openwrt/packages/commit/e5613b306f890da5ca2e6401bc587d67815dfc93"
 }
 
 
