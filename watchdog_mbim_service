@@ -6,6 +6,8 @@ START=99
 
 PROGRAM="/root/watchdog_mbim"
 
+# if you want to edit the script this will activate a service other than the main one
+# mkdir /tmp/bin; cp /root/watchdog_mbim /tmp/bin; # edit new script; vi /tmp/bin/watchdog_mbim; service watchdog_mbim restart
 PROGRAM2="/tmp/bin/watchdog_mbim"
 
 PID_FILE="/var/run/watchdog_mbim.pid"
