@@ -10,20 +10,14 @@
 trap "exit 0" INT TERM
 
 LTEINTERFACE=$(uci -q get network.wan)
-if [ ${LTEINTERFACE} != "interface" ]; then
+if [ "$LTEINTERFACE" != "interface" ]; then
     logger "exec: /root/watchdog_mbim: Interface wan not found in network config"
     exit 0
 fi
 
 LTEPROTO=$(uci -q get network.wan.proto)
-if [ ${LTEPROTO} != "mbim" ]; then
+if [ $"LTEPROTO" != "mbim" ]; then
     logger "exec: /root/watchdog_mbim: WAN interface is not using mbim"
-    exit 0
-fi
-
-AUTOCONNECT=$(uci -q get network.wan.autoconnect)
-if [ ${AUTOCONNECT} != "1" ]; then
-    logger "exec: /root/watchdog_mbim: WAN autoconnect is disabled"
     exit 0
 fi
 
@@ -31,7 +25,7 @@ count=0
 
 while true; do
 
-count=$(($count+1))
+    count=$(($count+1))
 
     # if this file exists block flow exit 0
     if [ -f /tmp/watchdog_mbim_block ]; then
@@ -51,14 +45,13 @@ count=$(($count+1))
     #
     # so well below the set timeout, i preferred to set a high timeout
     # 20000 msec = 20 seconds in order to reduce any micro-disconnection anomalies.
-    #
-
+    
     LTESTATUS=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
     LTEERROR=$?
-    LTEFIND=$(echo ${LTESTATUS} | grep "\"connected\"" | wc -l)
+    LTEFIND=$(echo "$LTESTATUS" | grep -c "\"connected\"")
 
     # uqmi does not return "connected"
-    if [ ${LTEFIND} -eq "0" ]; then
+    if [ "$LTEFIND" -eq "0" ]; then
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
@@ -67,7 +60,7 @@ count=$(($count+1))
     fi
 
     # uqmi not response into 20 sec
-    if [ ${LTEERROR} -ne 0 ]; then
+    if [ "$LTEERROR" -ne 0 ]; then
         logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
@@ -77,12 +70,10 @@ count=$(($count+1))
 
     # if this file exists show debug interactions
     if [ -f /tmp/watchdog_mbim_debug ]; then                                       
-        logger "exec: /root/watchdog_mbim debug LTESTATUS=${LTESTATUS} LTEERROR=${LTEERROR} LTEFIND=${LTEFIND} count=${count
+        logger "exec: /root/watchdog_mbim debug LTESTATUS=$LTESTATUS LTEERROR=$LTEERROR LTEFIND=$LTEFIND count=$count"
     fi
 
-    #
     # idle time between two connectivity checks LTEFIND=1 or LTEERROR=0
-    #
     sleep 20
     
 done
