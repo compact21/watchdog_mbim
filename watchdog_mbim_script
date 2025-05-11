@@ -16,7 +16,7 @@ if [ "$LTEINTERFACE" != "interface" ]; then
 fi
 
 LTEPROTO=$(uci -q get network.wan.proto)
-if [ $"LTEPROTO" != "mbim" ]; then
+if [ "$LTEPROTO" != "mbim" ]; then
     logger "exec: /root/watchdog_mbim: WAN interface is not using mbim"
     exit 0
 fi
