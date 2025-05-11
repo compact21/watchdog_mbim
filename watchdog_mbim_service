@@ -6,12 +6,16 @@ START=99
 
 PROGRAM="/root/watchdog_mbim"
 
+PROGRAM2="/tmp/bin/watchdog_mbim"
+
 PID_FILE="/var/run/watchdog_mbim.pid"
 
 # if you want to delay the daemon startup see Readme
 #
-#boot() {
-        #
+boot() {
+        # skip during boot, the daemon will be activated via an at command after 10 minutes from boot
+        return 0
+        
         # from "https://forum.openwrt.org/t/solved-start-init-script-at-boot-after-localhost-is-ready/11507"
         #
         # waits a certain amount of time to activate the service at the first boot of the router
@@ -21,9 +25,7 @@ PID_FILE="/var/run/watchdog_mbim.pid"
         # It's a dirty solution because for 600 seconds from boot the service will respond
         # in an anomalous way whether it is in "running" or "inactive" state
         #
-        # show command:
-        #
-        # service watchdog_mbim status; service watchdog_mbim info
+        # show command: service watchdog_mbim status; service watchdog_mbim info
         #
         # I preferred to use the "loopback" interface because I am not sure if the "wan" interface
         # is in an operational state at boot
@@ -32,24 +34,40 @@ PID_FILE="/var/run/watchdog_mbim.pid"
         #
         #ubus -t 600 wait_for network.interface network.loopback 2>/dev/null
         #rc_procd start_service
-#}
+}
 
 
 start_service() {
-        procd_open_instance
-        
+
         # from "https://github.com/openNDS/openNDS/blob/master/linux_openwrt/opennds/files/etc/init.d/opennds"
         #      "https://github.com/openwrt/openwrt/issues/5898"
         # solves "Instance not stopped SIGTERM, sending SIGKILL instead" given 180 seconds wait after doing ifdown wan && ifup wan
-        procd_set_param term_timeout 240
         # various sources on: "https://github.com/search?q=repo%3Aopenwrt%2Fpackages+procd_set_param+term_timeout&type=code"
         
+        if [ -x $PROGRAM2 ]; then
+        procd_open_instance
+        procd_set_param term_timeout 240
+        procd_set_param command $PROGRAM2
+        procd_set_param pidfile "$PID_FILE"
+        procd_set_param respawn
+        procd_set_param stdout 1
+        procd_set_param stderr 1
+        procd_close_instance
+        
+        else
+        if [ -x $PROGRAM ]; then
+        
+        procd_open_instance
+        procd_set_param term_timeout 240
         procd_set_param command $PROGRAM
         procd_set_param pidfile "$PID_FILE"
         procd_set_param respawn
         procd_set_param stdout 1
         procd_set_param stderr 1
         procd_close_instance
+        
+        fi
+        fi
 }
 
 service_triggers() {
