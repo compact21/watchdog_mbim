@@ -16,6 +16,24 @@ boot() {
   rc_procd start_service
 }
 
+
 Risoluzione del problema far lanciare il servizio tramite un comando dopo il boot
+
+opkg update; opkg install at
+        
+editare il file /etc/rc.local e aggiunger questa linea prima dell'exit 0 finale
+
+echo "service watchdog_mbim start" | at now+10minutes
+
+durante il boot comare un jobs con il comando "atq", il servizio si trova in stato "disabled" e "not-running"
+poi:
+service | grep watchdog_mbim
+/etc/init.d/watchdog_mbim         disabled         running
+
+boot() {
+        # show this document: "https://github.com/openwrt/packages/commit/e5613b306f890da5ca2e6401bc587d67815dfc93"
+        # during boot it does nothing
+        return 0
+}
 
 ------------------------------------------------------------------------------------------------------------------------------------
