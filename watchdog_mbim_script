@@ -27,11 +27,16 @@ while true; do
 
     count=$(($count+1))
 
-    # if this file exists block flow exit 0
+    status=$(ubus call service list '{ "name": "watchdog_mbim" }' | jsonfilter -l 1 -e '@[*].instances[*].running')
+
+    if [ $status ]; then
+    # if service is running and this file exists exec: /etc/init.d/watchdog_mbim stop
     if [ -f /tmp/watchdog_mbim_block ]; then
-        logger "exec: /root/watchdog_mbim: the file /tmp/watchdog_mbim_block exists; service watchdog stop; exit 0"
-        service watchdog stop
+        # from "https://forum.openwrt.org/t/start-and-stop-a-service-while-pushing-wps-button/191871/19"
+        logger "exec: /root/watchdog_mbim: the file /tmp/watchdog_mbim_block exists; /etc/init.d/watchdog_mbim stop; exit 0"
+        /etc/init.d/watchdog_mbim stop
         exit 0
+    fi
     fi
 
     # theoretically the "uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status"
@@ -55,7 +60,7 @@ while true; do
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
-        sleep 180
+        sleep 60
         break
     fi
 
@@ -64,7 +69,7 @@ while true; do
         logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         # performs a sleep allowing the connection to be reactivated without further checks during this time to avoid "race conditions"
-        sleep 180
+        sleep 60
         break
     fi
 
@@ -74,7 +79,7 @@ while true; do
     fi
 
     # idle time between two connectivity checks LTEFIND=1 or LTEERROR=0
-    sleep 20
+    sleep 5
     
 done
 
