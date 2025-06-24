@@ -44,7 +44,6 @@ while true; do
 
     count=$((count+1))
     status=$(ubus call service list '{ "name": "watchdog_mbim" }' | grep -c '"running": true')
-    uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
 
     # if service is running and this file exists exec: /etc/init.d/watchdog_mbim stop
     if [ "$status" -eq 1 ]; then
@@ -78,6 +77,7 @@ while true; do
     ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
     lteerror=$?
     ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
+    uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
 
     # uqmi does not return "connected"
     if [ "$ltefind" -eq "0" ]; then
@@ -90,6 +90,13 @@ while true; do
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         sleep "$delay_reconnect"; # sleep prevent "race condition"
+        uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
+        if [ -f "$watchdog_file_log" ]; then
+        {
+        echo "$(date) exec: /root/watchdog_mbim: end time delay_reconnect"
+        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status"
+        } >> "$watchdog_file_log"; # external file log
+        fi
         break
     fi
 
@@ -104,6 +111,13 @@ while true; do
         logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
         ifdown wan && ifup wan
         sleep "$delay_reconnect"; # sleep prevent "race condition"
+        uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
+        if [ -f "$watchdog_file_log" ]; then
+        {
+        echo "$(date) exec: /root/watchdog_mbim: end time delay_reconnect"
+        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status"
+        } >> "$watchdog_file_log"; # external file log
+        fi
         break
     fi
 
@@ -114,6 +128,7 @@ while true; do
 
     # if this file exists log external file
     if [ -f "$watchdog_enable_file" ]; then
+    uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
         if [ -f "$watchdog_file_log" ]; then
         echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status" >> "$watchdog_file_log"
         fi
