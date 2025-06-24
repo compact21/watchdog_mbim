@@ -16,6 +16,9 @@ boot() {
         # show this document: "https://github.com/openwrt/packages/commit/e5613b306f890da5ca2e6401bc587d67815dfc93"
         # during boot it does nothing
         return 0
+
+        # show this document: "https://github.com/compact21/watchdog_mbim/blob/main/README.md#edit-the-etcrclocal-file-which-will-look-something-like-this"
+        # add echo "service watchdog_mbim start" | at now+10minutes into /etc/rc.local first exit 0
 }
 
 start_service() {
