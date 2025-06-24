@@ -36,11 +36,11 @@ opkg install at
 
 or create your own custom firmware with the "at" command already inserted in the image:
 <br/>
-https://firmware-selector.openwrt.org/
+https://firmware-selector.openwrt.org/?version=24.10.1&target=ramips%2Fmt7621&id=zyxel_lte5398-m904
 
 a reference image how to do it:
 <br/>
-![immagine](https://github.com/user-attachments/assets/2f4a046a-16ad-4f78-bb2b-4cd07d42f67f)
+https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/firmware-selector.png
 
 
 ### Edit the /etc/rc.local file which will look something like this:
