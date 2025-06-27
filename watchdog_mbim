@@ -28,7 +28,7 @@ start_service() {
         procd_set_param term_timeout 240
         procd_set_param command $PROGRAM2
         procd_set_param pidfile "$PID_FILE"
-        procd_set_param respawn
+        procd_set_param respawn 150 10 10
         procd_set_param stdout 1
         procd_set_param stderr 1
         procd_close_instance
@@ -40,7 +40,7 @@ start_service() {
         procd_set_param term_timeout 240
         procd_set_param command $PROGRAM
         procd_set_param pidfile "$PID_FILE"
-        procd_set_param respawn
+        procd_set_param respawn 150 10 10
         procd_set_param stdout 1
         procd_set_param stderr 1
         procd_close_instance
@@ -49,18 +49,18 @@ start_service() {
         fi
 }
 
-#service_triggers() {
-#        #
-#        # from "https://forum.openwrt.org/t/procd-init-interface-trigger-for-non-daemon-executables-that-are-not-running-permanently/58258/8"
-#        #
-#        # when it detects an event on the defined interface it does the operation, it helps debugging the service
-#        # after giving the "ifdown wan" command you should see an event with the command:
-#        #
-#        # ubus monitor | grep '"method":"up","data":{"interface":"wan"}}'
-#        #
-#        # and as a consequence of this it should restart the service
-#        #
-#        procd_open_trigger
-#        procd_add_interface_trigger "interface.*.up" "wan" /etc/init.d/watchdog_mbim restart
-#        procd_close_trigger
-#}
+service_triggers() {
+        # I'm testing if there are no more similar events in logread:
+        # daemon.info procd: Instance watchdog_mbim::instance1 s in a crash loop 6 crashes, 228 seconds since last crash
+        #
+        # from "https://forum.openwrt.org/t/procd-init-interface-trigger-for-non-daemon-executables-that-are-not-running-permanently/58258/8"
+        # it helps debugging the service after giving the "ifdown wan" command you should see an event with the command:
+        # ubus monitor | grep '"method":"up","data":{"interface":"wan"}}'
+        #
+        # and as a consequence of this it should restart the service
+        #
+        procd_open_trigger
+        procd_add_interface_trigger "interface.*.up" "wan" /etc/init.d/watchdog_mbim restart
+        logger "/etc/init.d/watchdog_mbim restart $(date)"
+        procd_close_trigger
+}
