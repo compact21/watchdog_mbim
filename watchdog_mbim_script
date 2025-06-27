@@ -1,8 +1,8 @@
 #!/bin/sh
 # Daemon for mbim. Restart LTE connection
 #
-# Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
-# Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
+# Thanks "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
+# Thanks "@antonk" from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
 
 #set -x; # show this "https://forum.openwrt.org/t/qmi-ec25-v-verizon-problems/145970"
 
@@ -14,6 +14,7 @@ watchdog_block_file="/tmp/watchdog_mbim_block"; # create file for block script
 
 watchdog_enable_file="/tmp/watchdog_mbim_enable"; # create file for external file log
 watchdog_file_log="/tmp/watchdog_mbim_log"; # external file log
+atcmd_block_file="/tmp/atcmd_block"; # block exec /root/atcmd
 
 trap "exit 0" INT TERM
 
@@ -29,12 +30,13 @@ if [ "$lteproto" != "mbim" ]; then
     exit 0
 fi
 
+# external file log
 if [ -f "$watchdog_enable_file" ]; then
     if [ ! -f "$watchdog_file_log" ]; then
     {
-        echo "example: $(date) ltestatus=\"connected\" lteerror=0 ltefind=1 uptime=2165 count=12 status=1"
-        echo "------------------------------------------------------------------------------------"
-    }  >> "$watchdog_file_log"; # external file log
+    echo "example: $(date) ltestatus=\"connected\" lteerror=0 ltefind=1 wanuptime=2165 count=12 status=1 delay=$delay"
+    echo "------------------------------------------------------------------------------------"
+    }  >> "$watchdog_file_log"
     fi
 fi
 
@@ -44,93 +46,118 @@ while true; do
 
     count=$((count+1))
     status=$(ubus call service list '{ "name": "watchdog_mbim" }' | grep -c '"running": true')
+    wanuptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
 
     # if service is running and this file exists exec: /etc/init.d/watchdog_mbim stop
     if [ "$status" -eq 1 ]; then
-    if [ -f "$watchdog_block_file" ]; then
+        if [ -f "$watchdog_block_file" ]; then
         logger "exec: /root/watchdog_mbim: the file /tmp/watchdog_mbim_block exists; /etc/init.d/watchdog_mbim stop; exit 0"
         /etc/init.d/watchdog_mbim stop; # from "https://forum.openwrt.org/t/start-and-stop-a-service-while-pushing-wps-button/191871/19"
         exit 0
-    fi
+        fi
+    else
+        if [ -f "$atcmd_block_file" ]; then
+        rm "$atcmd_block_file"
+        fi
     fi
 
+    # external file log
     if [ -f "$watchdog_enable_file" ]; then
         if [ ! -f "$watchdog_file_log" ]; then
         {
-        echo "example: $(date) ltestatus=\"connected\" lteerror=0 ltefind=1 uptime=2165 count=12 status=1"
+        echo "example: $(date) ltestatus=\"connected\" lteerror=0 ltefind=1 wanuptime=2165 count=12 status=1 delay=$delay"
         echo "------------------------------------------------------------------------------------"
-        } >> "$watchdog_file_log"; # external file log
+        } >> "$watchdog_file_log"
         fi
     fi
 
     # theoretically the "uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status" command should respond in:
-    #
     # time uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status
     # "connected"
     # real    0m 0.25s
     # user    0m 0.00s
     # sys     0m 0.00s
-    #
-    # so well below the set timeout, i preferred to set a high timeout
-    # 20000 msec = 20 seconds in order to reduce any micro-disconnection anomalies.
 
-    ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
-    lteerror=$?
-    ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
-    uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
+    ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); # return "connected"
+    lteerror=$?; # return 0
+    ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
 
     # uqmi does not return "connected"
     if [ "$ltefind" -eq "0" ]; then
+        logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
+
+        # external file log
         if [ -f "$watchdog_file_log" ]; then
         {
         echo "$(date) exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
-        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status"
-        } >> "$watchdog_file_log"; # external file log
+        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status"
+        } >> "$watchdog_file_log"
         fi
-        logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
+        # debug mode
+        if [ -f "$watchdog_debug_file" ]; then
+        logger "exec: /root/watchdog_mbim debug: lost connection detected exec ifdown wan; ifup wan"
+        logger "exec: /root/watchdog_mbim debug: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status"
+        fi
+
         ifdown wan && ifup wan
-        sleep "$delay_reconnect"; # sleep prevent "race condition"
-        uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
-        if [ -f "$watchdog_file_log" ]; then
-        {
-        echo "$(date) exec: /root/watchdog_mbim: end time delay_reconnect"
-        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status"
-        } >> "$watchdog_file_log"; # external file log
+        touch "$atcmd_block_file"; sleep "$delay_reconnect"; # sleep prevent "race condition"
+
+        wanuptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
+        if [ -f "$watchdog_debug_file" ]; then
+        logger "exec: /root/watchdog_mbim debug: end time delay_reconnec=$delay_reconnect actual: wanuptime=$wanuptime"; # debug mode
         fi
+        if [ -f "$watchdog_file_log" ]; then
+        echo "$(date) exec: /root/watchdog_mbim: end time delay_reconnect=$delay_reconnect actual: wanuptime=$wanuptime" >> "$watchdog_file_log"; # external file log
+        fi
+
         break
     fi
 
     # uqmi not response into 20 sec
     if [ "$lteerror" -ne "0" ]; then
+        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
+
+        # external file log
         if [ -f "$watchdog_file_log" ]; then
         {
         echo "$(date) exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
-        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status"
-        } >> "$watchdog_file_log"; # external file log
+        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status"
+        } >> "$watchdog_file_log"
         fi
-        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
+        # debug mode
+        if [ -f "$watchdog_debug_file" ]; then
+        logger "exec: /root/watchdog_mbim debug: uqmi not response into 20 sec exec ifdown wan; ifup wan"
+        logger "exec: /root/watchdog_mbim debug: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status"
+        fi
+
         ifdown wan && ifup wan
-        sleep "$delay_reconnect"; # sleep prevent "race condition"
-        uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
-        if [ -f "$watchdog_file_log" ]; then
-        {
-        echo "$(date) exec: /root/watchdog_mbim: end time delay_reconnect"
-        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status"
-        } >> "$watchdog_file_log"; # external file log
+        touch "$atcmd_block_file"; sleep "$delay_reconnect"; # sleep prevent "race condition"
+
+        wanuptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
+        if [ -f "$watchdog_debug_file" ]; then
+        logger "exec: /root/watchdog_mbim debug: end time delay_reconnec=$delay_reconnect actual: wanuptime=$wanuptime"; # debug mode
         fi
+        if [ -f "$watchdog_file_log" ]; then
+        echo "$(date) exec: /root/watchdog_mbim: end time delay_reconnect=$delay_reconnect actual: wanuptime=$wanuptime" >> "$watchdog_file_log"; # external file log
+        fi
+
         break
     fi
 
-    # if this file exists logger debug
-    if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: /root/watchdog_mbim debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status"
+    # remove atcmd_block_file
+    if [ -f "$atcmd_block_file" ] && [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
+        rm "$atcmd_block_file"
     fi
 
-    # if this file exists log external file
-    if [ -f "$watchdog_enable_file" ]; then
-    uptime=$(ubus call network.interface.wan status | grep 'uptime' | grep -o '[0-9]\+')
+    # if this file exists logger debug
+    if [ -f "$watchdog_debug_file" ] && [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
+        logger "exec: /root/watchdog_mbim debug: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status delay=$delay"
+    fi
+
+    # if this file exists log external file 
+    if [ -f "$watchdog_enable_file" ] && [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
         if [ -f "$watchdog_file_log" ]; then
-        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind uptime=$uptime count=$count status=$status" >> "$watchdog_file_log"
+        echo "$(date) ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status delay=$delay" >> "$watchdog_file_log"
         fi
     fi
 
