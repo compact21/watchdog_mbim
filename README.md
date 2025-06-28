@@ -25,23 +25,11 @@ see this document:
 ## Watchdog disable service and start this after a certain time ...
 
 If you want, as in my case, to have the daemon start after a certain time from the router startup,
-I suggest you install the "at" package ...
+since the system date is assumed to be the date of the most recent file found on the partition
+show this document: "https://forum.openwrt.org/t/openwrt-out-of-sync-even-though-ntp-is-enabled/234493/6"
+you can opt for a "long sleep"
 
-### Add "at" package with the commands:
-   
-```
-opkg update
-opkg install at
-```
-
-or create your own custom firmware with the "at" command already inserted in the image:
-<br/>
-https://firmware-selector.openwrt.org/?version=24.10.1&target=ramips%2Fmt7621&id=zyxel_lte5398-m904
-
-a example from forum how to do it:
-<br/>
-https://forum.openwrt.org/t/backup-full-firmware/172133
-
+I suggest you edit /etc/rc.local like this:
 
 ### Edit the /etc/rc.local file which will look something like this:
 
@@ -50,7 +38,8 @@ cat /etc/rc.local
 # Put your custom commands here that should be executed once
 # the system init finished. By default this file does nothing.
 
-echo "service watchdog_mbim start" | at now+10minutes
+sleep 600
+service watchdog_mbim start
 
 exit 0
 ```
