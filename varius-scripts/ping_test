@@ -13,7 +13,7 @@ TARGET="8.8.8.8"
 MAX_PING="60"
 
 if [ ! -f "$PING_LOCK" ]; then
-echo "$(date) exec create $PING_LOCK" >> "$LOG_FILE"
+#echo "$(date) exec create $PING_LOCK" >> "$LOG_FILE"
 touch "$PING_LOCK"
 fi
 
@@ -21,36 +21,34 @@ count=0
 while [[ "$count" -lt "$MAX_PING" ]]
 do
         count=$((count+1))
-        echo "---------------------------------------------------------------" >> "$LOG_FILE"
-        echo "$(date) exec ping -c 1 -W 1 $TARGET; sleep 1 count=$count" >> "$LOG_FILE"
+        #echo "---------------------------------------------------------------" >> "$LOG_FILE"
+        #echo "$(date) exec ping -c 1 -W 1 $TARGET; sleep 1 count=$count" >> "$LOG_FILE"
 
         ping -c 1 -W 1 "$TARGET" >> "$LOG_FILE" 2>&1
         if [ $? -eq "0" ] && [ -f "$PING_LOCK" ]; then
                 wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
-                echo "$(date) Ping execution success sent and received packet" >> "$LOG_FILE"
+                #echo "$(date) Ping execution success sent and received packet" >> "$LOG_FILE"
                 logger "exec: $PROGRAM send and received packet form count=$count wanuptime=$wanuptime"
-                echo "$(date) exec rm $PING_LOCK" >> "$LOG_FILE"
+                #echo "$(date) exec rm $PING_LOCK" >> "$LOG_FILE"
                 rm "$PING_LOCK"
                 if [ -f "$PING_PID" ]; then
-                #echo "$(date) exec kill -9 $PING_PID" >> "$LOG_FILE"
-                #kill -9 $(cat $PING_PID)
-                echo "$(date) exec rm $PING_PID" >> "$LOG_FILE"
+                #echo "$(date) exec rm $PING_PID" >> "$LOG_FILE"
                 rm "$PING_PID"
-                logger "exec: $PROGRAM stop count=$count" 
+                #logger "exec: $PROGRAM stop count=$count" 
                 exit 0
                 fi
         fi
         sleep 1
         if [ "$count" -eq "$MAX_PING" ]; then
                 if [ -f "$PING_LOCK" ]; then
-                echo "$(date) exec rm $PING_LOCK" >> "$LOG_FILE"
+                #echo "$(date) exec rm $PING_LOCK" >> "$LOG_FILE"
                 rm "$PING_LOCK"
                 fi
                 if [ -f "$PING_PID" ]; then
-                echo "$(date) exec rm $PING_PID" >> "$LOG_FILE"
+                #echo "$(date) exec rm $PING_PID" >> "$LOG_FILE"
                 rm "$PING_PID"
                 fi
         fi
 done
 
-logger "exec: $PROGRAM stop process count=$count"
+#logger "exec: $PROGRAM stop process count=$count"
