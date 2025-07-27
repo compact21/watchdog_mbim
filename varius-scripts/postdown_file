@@ -3,10 +3,11 @@ watchdog_postdown_file="/tmp/watchdog/postdown_file"
 atcmd_file="/tmp/watchdog/at_command"; # file log commands pre/post down interface
 wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
 
-echo "$(date)" >> "$atcmd_file"
+#echo "$(date)" >> "$atcmd_file"
 ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1
 if [ $? -eq 0 ]; then
-picocom /dev/ttyUSB2 --exit-after 300 --quiet -t $(printf "AT+CGPADDR=1\r\n") --logfile "$atcmd_file" 2>&1
+#picocom /dev/ttyUSB2 --exit-after 300 --quiet -t $(printf "AT+CGPADDR=1\r\n") --logfile "$atcmd_file" 2>&1
+picocom /dev/ttyUSB2 --exit-after 300 --quiet -t $(printf "AT+CGPADDR=1\r\n") 2>&1
 fi
 
-logger "exec: $watchdog_postdown_file create file $atcmd_file wanuptime=$wanuptime"
+#logger "exec: $watchdog_postdown_file create file $atcmd_file wanuptime=$wanuptime"
