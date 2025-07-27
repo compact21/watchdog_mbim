@@ -84,13 +84,13 @@ while true; do
         fi
 
         if [ -x "$watchdog_ping_test" ]; then
-        logger "exec: $watchdog_ping_test start"
+        #logger "exec: $watchdog_ping_test start"
         $watchdog_ping_test &
         fi
 
         # exec command predown interface
         if [ -x "$watchdog_predown_file" ]; then
-        logger "exec: $watchdog_predown_file"
+        #logger "exec: $watchdog_predown_file"
         $watchdog_predown_file
         fi
 
@@ -106,7 +106,7 @@ while true; do
 
         # exec command post down interface
         if [ -x "$watchdog_postdown_file" ]; then
-        logger "exec: $watchdog_postdown_file"
+        #logger "exec: $watchdog_postdown_file"
         $watchdog_postdown_file
         fi
 
