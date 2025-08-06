@@ -75,12 +75,12 @@ while true; do
 
         # uqmi does not return "connected" 
         if [ "$ltefind" -eq "0" ]; then
-        logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan"
+        logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan count=$count wanuptime=$wanuptime"
         fi
 
         # uqmi not response into 20 sec
         if [ "$lteerror" -ne "0" ]; then
-        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan"
+        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan count=$count wanuptime=$wanuptime"
         fi
 
         if [ -x "$watchdog_ping_test" ]; then
@@ -100,7 +100,11 @@ while true; do
         fi
 
         ifdown wan && ifup wan
+
         touch "$atcmd_block_file"; # block exec atcmd commands
+        if [ -f "$watchdog_debug_file" ]; then
+        logger "exec: create $atcmd_block_file"
+        fi
 
         sleep "$delay_reconnect"; # sleep prevent "race condition"
 
@@ -111,7 +115,6 @@ while true; do
         fi
 
         if [ -f "$watchdog_debug_file" ]; then
-        wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
         logger "exec: /root/watchdog_mbim: debug end time delay_reconnec=$delay_reconnect actual: wanuptime=$wanuptime"; # debug mode
         fi
 
@@ -126,15 +129,25 @@ while true; do
         rm "$watchdog_ping_pid"
     fi
 
-    # remove atcmd_block_file
-    if [ -f "$atcmd_block_file" ] && [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
-        rm "$atcmd_block_file"
-    fi
+    # online status
+    if [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
 
-    # if this file exists logger debug
-    if [ -f "$watchdog_debug_file" ] && [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
+        # discovers WAN uptime
         wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
+
+        # debug mode
+        if [ -f "$watchdog_debug_file" ]; then
         logger "exec: /root/watchdog_mbim: debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status delay=$delay"
+        fi
+
+        # remove atcmd_block_file
+        if [ -f "$atcmd_block_file" ]; then
+        rm "$atcmd_block_file"
+                if [ -f "$watchdog_debug_file" ]; then
+                logger "exec: delete $atcmd_block_file"
+                fi
+        fi
+
     fi
 
     sleep "$delay"; # idle time between connectivity checks
@@ -142,4 +155,3 @@ while true; do
 done
 
 exit 0
-
