@@ -92,13 +92,17 @@ while true; do
         fi
 
         if [ -x "$watchdog_ping_test" ]; then
+        if [ -f "$watchdog_debug_file" ]; then
         logger "exec: $watchdog_ping_test start"
+        fi
         $watchdog_ping_test &
         fi
 
         # exec command predown interface
         if [ -x "$watchdog_predown_file" ]; then
+        if [ -f "$watchdog_debug_file" ]; then
         logger "exec: $watchdog_predown_file"
+        fi
         $watchdog_predown_file
         fi
 
@@ -107,8 +111,16 @@ while true; do
         logger "exec: /root/watchdog_mbim: debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status"
         fi
 
-        #daemon.err watchdog_mbim[15644]: + ifdown wan
-        #daemon.err watchdog_mbim[15644]: Command failed: ubus call network.interface down { "interface" : "wan" } (Request timed out)
+        # i find this in logread (set -x)
+        # daemon.err watchdog_mbim[15644]: + ifdown wan
+        # daemon.err watchdog_mbim[15644]: Command failed: ubus call network.interface down { "interface" : "wan" } (Request timed out)
+
+        # exec: ubus call network.interface.wan down or ifdown wan
+        # daemon.notice netifd: Interface 'wan_4' is now down
+        # daemon.notice netifd: Interface 'wan_4' is disabled
+        # netifd: Interface 'wan_4' has link connectivity loss
+        # daemon.notice netifd: wan (31821): Command failed: ubus call network.interface notify_proto { "action": 0, "link-up": false, "keep": false, "interface": "wan" } (Permission denied)
+
         ifdown wan && ifup wan
 
         touch "$atcmd_block_file"; # block exec atcmd commands
@@ -120,7 +132,9 @@ while true; do
 
         # exec command post down interface
         if [ -x "$watchdog_postdown_file" ]; then
+        if [ -f "$watchdog_debug_file" ]; then
         logger "exec: $watchdog_postdown_file"
+        fi
         $watchdog_postdown_file
         fi
 
@@ -131,8 +145,11 @@ while true; do
         break
     fi
 
-    # kill ping_test process
-    if [ "$count" -eq "30" ] && [ -f "$watchdog_ping_pid" ]; then
+    # if after about 3 minutes, 180 seconds / 5 seconds of "$delay" it is still not connected it proceeds to kill the "$watchdog_ping_test" process
+    # set -x; logread | grep -E "1 -eq 36|36 -eq 36"
+    # Sun Aug 10 13:27:34 2025 daemon.err watchdog_mbim[5167]: + '[' 1 -eq 36 ]
+    # Sun Aug 10 13:30:38 2025 daemon.err watchdog_mbim[5167]: + '[' 36 -eq 36 ]
+    if [ "$count" -eq "36" ] && [ -f "$watchdog_ping_pid" ]; then
         logger "exec: kill $watchdog_ping_test process"
         kill -9 "$(cat $watchdog_ping_pid)"
         rm "$watchdog_ping_pid"
@@ -142,12 +159,16 @@ while true; do
     if [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
 
         # discovers WAN uptime
-        if [ -e "/sys/class/net/wwan0/carrier" ]; then
+        if [ -f "$watchdog_debug_file" ]; then
+        logger "exec: watchdog_mbim discovers WAN start"
+        fi
         #wanstatus=$(ubus call network.interface.wan_4 status | grep -c '"up": true')
-        wanstatus=$(cat /sys/class/net/wwan0/carrier)
+        wanstatus=$(cat /sys/class/net/wwan0/carrier 2> /dev/null)
         if [ "$wanstatus" -eq "1" ]; then
         wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
         export wanuptime
+        if [ -f "$watchdog_debug_file" ]; then
+        logger "exec: watchdog_mbim wanstatus=$wanstatus wanuptime=$wanuptime count=$count"
         fi
         fi
 
