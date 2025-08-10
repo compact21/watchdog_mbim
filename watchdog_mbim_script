@@ -75,7 +75,7 @@ while true; do
 
         # uqmi does not return "connected"
         if [ "$ltefind" -eq "0" ]; then
-        if [ ! -z "$wanuptime" ]; then
+        if [ -n "$wanuptime" ]; then
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan count=$count wanuptime=$wanuptime"
         else
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan count=$count"
@@ -84,7 +84,7 @@ while true; do
 
         # uqmi not response into 20 sec
         if [ "$lteerror" -ne "0" ]; then
-        if [ ! -z "$wanuptime" ]; then
+        if [ -n "$wanuptime" ]; then
         logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan count=$count wanuptime=$wanuptime"
         else
         logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan count=$count"
@@ -98,7 +98,7 @@ while true; do
 
         # exec command predown interface
         if [ -x "$watchdog_predown_file" ]; then
-        #logger "exec: $watchdog_predown_file"
+        logger "exec: $watchdog_predown_file"
         $watchdog_predown_file
         fi
 
@@ -120,7 +120,7 @@ while true; do
 
         # exec command post down interface
         if [ -x "$watchdog_postdown_file" ]; then
-        #logger "exec: $watchdog_postdown_file"
+        logger "exec: $watchdog_postdown_file"
         $watchdog_postdown_file
         fi
 
@@ -142,15 +142,18 @@ while true; do
     if [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
 
         # discovers WAN uptime
+        if [ -e "/sys/class/net/wwan0/carrier" ]; then
         #wanstatus=$(ubus call network.interface.wan_4 status | grep -c '"up": true')
         wanstatus=$(cat /sys/class/net/wwan0/carrier)
         if [ "$wanstatus" -eq "1" ]; then
         wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
+        export wanuptime
+        fi
         fi
 
         # debug mode
         if [ -f "$watchdog_debug_file" ]; then
-        if [ ! -z "$wanuptime" ]; then
+        if [ -n "$wanuptime" ]; then
         logger "exec: /root/watchdog_mbim: debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status delay=$delay"
         else
         logger "exec: /root/watchdog_mbim: debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status delay=$delay"
