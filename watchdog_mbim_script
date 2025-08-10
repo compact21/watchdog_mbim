@@ -73,7 +73,7 @@ while true; do
 
     if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
 
-        # uqmi does not return "connected" 
+        # uqmi does not return "connected"
         if [ "$ltefind" -eq "0" ]; then
         if [ ! -z "$wanuptime" ]; then
         logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan count=$count wanuptime=$wanuptime"
@@ -92,7 +92,7 @@ while true; do
         fi
 
         if [ -x "$watchdog_ping_test" ]; then
-        #logger "exec: $watchdog_ping_test start"
+        logger "exec: $watchdog_ping_test start"
         $watchdog_ping_test &
         fi
 
@@ -125,11 +125,7 @@ while true; do
         fi
 
         if [ -f "$watchdog_debug_file" ]; then
-        if [ ! -z "$wanuptime" ]; then
-        logger "exec: /root/watchdog_mbim: debug end time delay_reconnec=$delay_reconnect actual: wanuptime=$wanuptime"; # debug mode
-        else
         logger "exec: /root/watchdog_mbim: debug end time delay_reconnec=$delay_reconnect"; # debug mode
-        fi
         fi
 
         break
@@ -139,7 +135,6 @@ while true; do
     if [ "$count" -eq "30" ] && [ -f "$watchdog_ping_pid" ]; then
         logger "exec: kill $watchdog_ping_test process"
         kill -9 "$(cat $watchdog_ping_pid)"
-        #kill -9 $(cat $watchdog_ping_pid)
         rm "$watchdog_ping_pid"
     fi
 
@@ -147,9 +142,9 @@ while true; do
     if [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
 
         # discovers WAN uptime
-        wanstatus=$(ubus call network.interface.wan_4 status > /dev/null 2>&1; echo $?)
-        #logger "exec: /root/watchdog_mbim: wanstatus=$wanstatus"
-        if [ "$wanstatus" -eq "0" ]; then
+        #wanstatus=$(ubus call network.interface.wan_4 status | grep -c '"up": true')
+        wanstatus=$(cat /sys/class/net/wwan0/carrier)
+        if [ "$wanstatus" -eq "1" ]; then
         wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
         fi
 
