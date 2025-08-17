@@ -8,7 +8,7 @@
 
 delay="5"; # idle time between connectivity checks
 
-delay_reconnect="60"; # reconnect time after  "ifdown wan && ifup wan" re-executed script, prevent "race condition"
+delay_reconnect="90"; # reconnect time after  "ifdown wan && ifup wan" re-executed script, prevent "race condition"
 
 watchdog_debug_file="/tmp/watchdog/mbim_debug"; # create file for debug script
 
@@ -16,17 +16,19 @@ watchdog_block_file="/tmp/watchdog/mbim_block"; # create file for block script
 
 atcmd_block_file="/tmp/watchdog/atcmd_block"; # block exec atcmd commands
 
+logheader="exec: /root/watchdog_mbim:"; # logger header message
+
 trap "exit 0" INT TERM
 
 lteinterface=$(uci -q get network.wan)
 if [ "$lteinterface" != "interface" ]; then
-    logger "exec: /root/watchdog_mbim: Interface wan not found in network config"
+    logger "$logheader Interface wan not found in network config"
     exit 0
 fi
 
 lteproto=$(uci -q get network.wan.proto)
 if [ "$lteproto" != "mbim" ]; then
-    logger "exec: /root/watchdog_mbim: WAN interface is not using mbim"
+    logger "$logheader WAN interface is not using mbim"
     exit 0
 fi
 
@@ -46,7 +48,7 @@ while true; do
     # if service is running and this file exists exec: /etc/init.d/watchdog_mbim stop
     if [ "$status" -eq 1 ]; then
         if [ -f "$watchdog_block_file" ]; then
-        logger "exec: /root/watchdog_mbim: the file /tmp/watchdog_mbim_block exists; /etc/init.d/watchdog_mbim stop; exit 0"
+        logger "$logheader the file /tmp/watchdog_mbim_block exists; /etc/init.d/watchdog_mbim stop; exit 0"
         /etc/init.d/watchdog_mbim stop; # from "https://forum.openwrt.org/t/start-and-stop-a-service-while-pushing-wps-button/191871/19"
         exit 0
         fi
@@ -73,24 +75,15 @@ while true; do
 
     if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
 
-        # uqmi does not return "connected"
-        if [ "$ltefind" -eq "0" ]; then
+        # uqmi does not return "connected" or uqmi not response into 20 sec
+        logger "$logheaderlost connection detected, or uqmi not respond into 20 sec, exec ifdown wan; ifup wan"
         if [ -n "$wanuptime" ]; then
-        logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan count=$count wanuptime=$wanuptime"
+        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror wanuptime=$wanuptime delay=$delay delay_reconnec=$delay_reconnect"
         else
-        logger "exec: /root/watchdog_mbim: lost connection detected exec ifdown wan; ifup wan count=$count"
-        fi
+        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror delay=$delay delay_reconnec=$delay_reconnect"
         fi
 
-        # uqmi not response into 20 sec
-        if [ "$lteerror" -ne "0" ]; then
-        if [ -n "$wanuptime" ]; then
-        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan count=$count wanuptime=$wanuptime"
-        else
-        logger "exec: /root/watchdog_mbim: uqmi not response into 20 sec exec ifdown wan; ifup wan count=$count"
-        fi
-        fi
-
+        # exec ping_test if present
         if [ -x "$watchdog_ping_test" ]; then
         if [ -f "$watchdog_debug_file" ]; then
         logger "exec: $watchdog_ping_test start"
@@ -98,7 +91,7 @@ while true; do
         $watchdog_ping_test &
         fi
 
-        # exec command predown interface
+        # exec command predown interface if present
         if [ -x "$watchdog_predown_file" ]; then
         if [ -f "$watchdog_debug_file" ]; then
         logger "exec: $watchdog_predown_file"
@@ -108,29 +101,20 @@ while true; do
 
         # debug mode
         if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: /root/watchdog_mbim: debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status"
+        logger "$logheaderdebug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status"
         fi
-
-        # i find this in logread (set -x)
-        # daemon.err watchdog_mbim[15644]: + ifdown wan
-        # daemon.err watchdog_mbim[15644]: Command failed: ubus call network.interface down { "interface" : "wan" } (Request timed out)
-
-        # exec: ubus call network.interface.wan down or ifdown wan
-        # daemon.notice netifd: Interface 'wan_4' is now down
-        # daemon.notice netifd: Interface 'wan_4' is disabled
-        # netifd: Interface 'wan_4' has link connectivity loss
-        # daemon.notice netifd: wan (31821): Command failed: ubus call network.interface notify_proto { "action": 0, "link-up": false, "keep": false, "interface": "wan" } (Permission denied)
 
         ifdown wan && ifup wan
 
-        touch "$atcmd_block_file"; # block exec atcmd commands
+        # block exec atcmd commands view /root/atcmd
+        touch "$atcmd_block_file"
         if [ -f "$watchdog_debug_file" ]; then
         logger "exec: create $atcmd_block_file"
         fi
 
         sleep "$delay_reconnect"; # sleep prevent "race condition"
 
-        # exec command post down interface
+        # exec command post down interface if present
         if [ -x "$watchdog_postdown_file" ]; then
         if [ -f "$watchdog_debug_file" ]; then
         logger "exec: $watchdog_postdown_file"
@@ -139,7 +123,7 @@ while true; do
         fi
 
         if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: /root/watchdog_mbim: debug end time delay_reconnec=$delay_reconnect"; # debug mode
+        logger "$logheader debug end time delay_reconnec=$delay_reconnect after running postdown command if present"
         fi
 
         break
@@ -159,25 +143,21 @@ while true; do
     if [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
 
         # discovers WAN uptime
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: watchdog_mbim discovers WAN start"
-        fi
-        #wanstatus=$(ubus call network.interface.wan_4 status | grep -c '"up": true')
         wanstatus=$(cat /sys/class/net/wwan0/carrier 2> /dev/null)
         if [ "$wanstatus" -eq "1" ]; then
         wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
         export wanuptime
         if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: watchdog_mbim wanstatus=$wanstatus wanuptime=$wanuptime count=$count"
+        logger "$logheader discover WAN uptime wanstatus=$wanstatus wanuptime=$wanuptime count=$count"
         fi
         fi
 
         # debug mode
         if [ -f "$watchdog_debug_file" ]; then
         if [ -n "$wanuptime" ]; then
-        logger "exec: /root/watchdog_mbim: debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status delay=$delay"
+        logger "$logheader debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status delay=$delay"
         else
-        logger "exec: /root/watchdog_mbim: debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status delay=$delay"
+        logger "$logheader debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status delay=$delay"
         fi
         fi
 
