@@ -76,7 +76,7 @@ while true; do
     if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
 
         # uqmi does not return "connected" or uqmi not response into 20 sec
-        logger "$logheaderlost connection detected, or uqmi not respond into 20 sec, exec ifdown wan; ifup wan"
+        logger "$logheader lost connection detected, or uqmi not respond into 20 sec, exec ifdown wan; ifup wan"
         if [ -n "$wanuptime" ]; then
         logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror wanuptime=$wanuptime delay=$delay delay_reconnec=$delay_reconnect"
         else
