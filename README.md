@@ -58,37 +58,3 @@ echo "/root/" >> /etc/sysupgrade.conf
 echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
 service watchdog_mbim start
 ```
-
-----------------------------------------------------------------------------------------------------------------------------------------------
-
-<b>
-I keep the documentation (see below) for a daemon that starts at boot and runs all the time,
-but I don't recommend it,
-as it would be better if the first connection was made without any interference (see above)
-</b>
-
-<br/>
-<br/>
-
-<s>
-## Watchdog service always running ...
-
-Service always active/enabled and always run (a real script daemon)
-
-### What to do:
-
-```
-cd /tmp
-wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim_service
-wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim_script
-mv watchdog_mbim_service /etc/init.d/watchdog_mbim
-mv watchdog_mbim_script /root/watchdog_mbim
-chmod +x /etc/init.d/watchdog_mbim
-chmod +x /root/modem_watchdog_mbim
-echo "/root/" >> /etc/sysupgrade.conf
-echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
-service watchdog_mbim enable
-service watchdog_mbim start
-```
-
-</s>
