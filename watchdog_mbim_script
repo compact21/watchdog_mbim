@@ -27,8 +27,8 @@ if [ "$lteinterface" != "interface" ]; then
 fi
 
 lteproto=$(uci -q get network.wan.proto)
-if [ "$lteproto" != "mbim" ]; then
-    logger "$logheader WAN interface is not using mbim"
+if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
+    logger "$logheader WAN interface is not using mbim or qmi"
     exit 0
 fi
 
@@ -69,18 +69,26 @@ while true; do
     # user    0m 0.00s
     # sys     0m 0.00s
 
+    if [ "$lteproto" = "mbim" ]; then
     ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); # return "connected"
     lteerror=$?; # return 0
     ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
+    fi
+
+    if [ "$lteproto" = "qmi" ]; then
+    ltestatus=$(uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); # return "connected"
+    lteerror=$?; # return 0
+    ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
+    fi
 
     if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
 
         # uqmi does not return "connected" or uqmi not response into 20 sec
-        logger "$logheader lost connection detected, or uqmi not respond into 20 sec, exec ifdown wan; ifup wan"
+        logger "$logheader lost connection detected, or uqmi not respond into 20 sec, exec ifup wan"
         if [ -n "$wanuptime" ]; then
-        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror wanuptime=$wanuptime delay=$delay delay_reconnec=$delay_reconnect"
+        logger "$logheader proto=$lteproto count=$count ltestatus=$ltestatus lteerror=$lteerror wanuptime=$wanuptime delay=$delay delay_reconnec=$delay_reconnect"
         else
-        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror delay=$delay delay_reconnec=$delay_reconnect"
+        logger "$logheader proto=$lteproto count=$count ltestatus=$ltestatus lteerror=$lteerror delay=$delay delay_reconnec=$delay_reconnect"
         fi
 
         # exec ping_test if present
@@ -104,7 +112,8 @@ while true; do
         logger "$logheaderdebug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status"
         fi
 
-        ifdown wan && ifup wan
+        # ifdown not necessary from: https://forum.openwrt.org/t/what-is-the-command-to-restart-wan6/107810/2
+        ifup wan
 
         # block exec atcmd commands view /root/atcmd
         touch "$atcmd_block_file"
