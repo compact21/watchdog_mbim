@@ -1,5 +1,5 @@
 #!/bin/sh
-# Daemon for mbim. Restart LTE connection
+# Daemon for qmi/mbim. ifup LTE connection
 #
 # Thanks "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
 # Thanks "@antonk" from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
@@ -8,7 +8,7 @@
 
 delay="5"; # idle time between connectivity checks
 
-delay_reconnect="90"; # reconnect time after  "ifdown wan && ifup wan" re-executed script, prevent "race condition"
+delay_reconnect="90"; # reconnect time after  "ifup wan" prevent "race condition"
 
 watchdog_debug_file="/tmp/watchdog/mbim_debug"; # create file for debug script
 
@@ -36,7 +36,7 @@ count=0
 
 while true; do
 
-    # add varius scripts
+    # exec varius scripts
     watchdog_predown_file="/tmp/watchdog/predown_file"; # create file for exec command pre down interface
     watchdog_postdown_file="/tmp/watchdog/postdown_file"; # create file for exec command post down interface
     watchdog_ping_test="/tmp/watchdog/ping_test"; # create file for exec ping test internet connection
@@ -62,23 +62,16 @@ while true; do
         mkdir /tmp/watchdog
     fi
 
-    # theoretically the "uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status" command should respond in:
-    # time uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status
-    # "connected"
-    # real    0m 0.25s
-    # user    0m 0.00s
-    # sys     0m 0.00s
-
     if [ "$lteproto" = "mbim" ]; then
-    ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); # return "connected"
-    lteerror=$?; # return 0
-    ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
+    ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
+    lteerror=$?
+    ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
     fi
 
     if [ "$lteproto" = "qmi" ]; then
-    ltestatus=$(uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); # return "connected"
-    lteerror=$?; # return 0
-    ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
+    ltestatus=$(uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
+    lteerror=$?
+    ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
     fi
 
     if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
@@ -86,9 +79,9 @@ while true; do
         # uqmi does not return "connected" or uqmi not response into 20 sec
         logger "$logheader lost connection detected, or uqmi not respond into 20 sec, exec ifup wan"
         if [ -n "$wanuptime" ]; then
-        logger "$logheader proto=$lteproto count=$count ltestatus=$ltestatus lteerror=$lteerror wanuptime=$wanuptime delay=$delay delay_reconnec=$delay_reconnect"
+        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror wanuptime=$wanuptime delay=$delay delay_reconnec=$delay_reconnect"
         else
-        logger "$logheader proto=$lteproto count=$count ltestatus=$ltestatus lteerror=$lteerror delay=$delay delay_reconnec=$delay_reconnect"
+        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror delay=$delay delay_reconnec=$delay_reconnect"
         fi
 
         # exec ping_test if present
@@ -156,9 +149,6 @@ while true; do
         if [ "$wanstatus" -eq "1" ]; then
         wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
         export wanuptime
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "$logheader discover WAN uptime wanstatus=$wanstatus wanuptime=$wanuptime count=$count"
-        fi
         fi
 
         # debug mode
@@ -173,9 +163,6 @@ while true; do
         # remove atcmd_block_file
         if [ -f "$atcmd_block_file" ]; then
         rm "$atcmd_block_file"
-                if [ -f "$watchdog_debug_file" ]; then
-                logger "exec: delete $atcmd_block_file"
-                fi
         fi
 
     fi
