@@ -1,6 +1,6 @@
-# Watchdog for restart connecting with proto MBIM for Openwrt.
+# Watchdog for restart connecting with proto MBIM or QMI for Openwrt.
 
-I test on my Openwrt LTE5398-M904
+I test on my Openwrt LTE5398-M904 with the LTE module in MBIM
 
 Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
 
@@ -12,17 +12,64 @@ I prefer to put all the scripts in "/root" directory
 
 Add "/root" + "/etc/init.d/watchdog_mbim" into /etc/sysupgrade.conf so that they are preserved by sysupgrade
 
-----------------------------------------------------------------------------------------------------------------------------------------------
-
 <b>
 I advice starting the daemon 10 minutes after the router boots,
 
 so that there is no interference during the first connection
 </b>
 
-see this document:
+If you notice any inconsistencies in the documentation, please let me know.
 
-## Watchdog disable service and start this after a certain time ...
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+### What is it based on?
+
+It is based on returning the connection status of this command:
+
+uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status (for MBIM)
+uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status (for QMI)
+
+A 20 second timeout has been added so that if it doesn't respond within that time,
+an error is detected and internet connectivity is restarted.
+
+Theoretically the "uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status" command should respond in:
+```
+time uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status
+"connected"
+real    0m 0.25s
+user    0m 0.00s
+sys     0m 0.00s
+```
+
+the normal state of important script variables:
+```
+ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); # return "connected"
+lteerror=$?; # return 0
+ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
+```
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+### Various scripts
+
+Scripts have been added that can run commands before restarting the interface and after the interface has been restarted.
+
+```
+watchdog_predown_file="/tmp/watchdog/predown_file"
+https://github.com/compact21/watchdog_mbim/blob/main/varius-scripts/predown_file
+
+watchdog_postdown_file="/tmp/watchdog/postdown_file"
+https://github.com/compact21/watchdog_mbim/blob/main/varius-scripts/postdown_file
+
+watchdog_ping_test="/tmp/watchdog/ping_test"
+https://github.com/compact21/watchdog_mbim/blob/main/varius-scripts/ping_test
+```
+These are not necessary for the daemon to function but can help detect reconnection time,
+or in case you want to run specific commands when a loss of connectivity is detected.
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+### Watchdog disable service and start this after a certain time ...
 
 If you want, as in my case, to have the daemon start after a certain time from the router startup,
 since the system date is assumed to be the date of the most recent file found on the partition
