@@ -8,6 +8,8 @@ Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sampl
 
 ----------------------------------------------------------------------------------------------------------------------------------------------
 
+### Some of my preferences
+
 I prefer to put all the scripts in "/root" directory
 
 Add "/root" + "/etc/init.d/watchdog_mbim" into /etc/sysupgrade.conf so that they are preserved by sysupgrade
@@ -27,6 +29,7 @@ If you notice any inconsistencies in the documentation, please let me know.
 It is based on returning the connection status of this command:
 
 uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status (for MBIM)
+</br>
 uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status (for QMI)
 
 A 20 second timeout has been added so that if it doesn't respond within that time,
@@ -69,14 +72,28 @@ or in case you want to run specific commands when a loss of connectivity is dete
 
 ----------------------------------------------------------------------------------------------------------------------------------------------
 
-### Watchdog disable service and start this after a certain time ...
+### Activates the watchdog service after 10 minutes of router startup
 
-If you want, as in my case, to have the daemon start after a certain time from the router startup,
-since the system date is assumed to be the date of the most recent file found on the partition
-show this document: "https://forum.openwrt.org/t/openwrt-out-of-sync-even-though-ntp-is-enabled/234493/6"
-you can opt for a "long sleep"
+I preferred to activate the service after 10 minutes to avoid the following issues:
 
-I suggest you edit /etc/rc.local like this:
+1. Correction of the system date, as the date is set with
+   the most recent file found in the "/etc" directory.
+   </br>
+   https://forum.openwrt.org/t/openwrt-out-of-sync-even-though-ntp-is-enabled/234493/6
+   </br>
+   https://forum.openwrt.org/t/retroactivelly-change-logs-timestamp/206872/5
+   </br>
+   https://forum.openwrt.org/t/kernel-timestamps-are-6-days-behind-on-reboot/139872
+
+3. The first connection may not align with the correct parameters defined by your "ISP."
+   </br>
+   https://forum.openwrt.org/t/lte-o2-and-t-d1-work-but-vodafone-d2-does-not/43160
+   </br>
+   https://forum.openwrt.org/t/trouble-registering-private-apn-on-teltonika-rut955-with-openwrt/170960
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+## If you like how the service has been implemented here are the things that need to be done
 
 ### Edit the /etc/rc.local file which will look something like this:
 
