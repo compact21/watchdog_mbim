@@ -102,8 +102,27 @@ cat /etc/rc.local
 # Put your custom commands here that should be executed once
 # the system init finished. By default this file does nothing.
 
-sleep 600
-service watchdog_mbim start
+logger "exec: sleep 60 for activated wan uplink"
+sleep 60
+
+ping -c 5 www.google.it
+if [ $? -ne "0" ]; then
+logger "exec: ping fail, sleep 60"
+sleep 120
+fi
+
+ntpd -dnq -p pool.ntp.org > /tmp/boot/boot_ntpd 2>&1
+if [ $? -eq "0" ]; then
+sleep 5
+/etc/init.d/sysntpd restart
+sleep 120
+    if [ -x /etc/init.d/watchdog_mbim ]; then
+    sleep 300
+    /etc/init.d/watchdog_mbim start
+    fi
+else
+logger "exec: ntpd fail update date"
+fi
 
 exit 0
 ```
