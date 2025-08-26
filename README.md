@@ -107,7 +107,7 @@ sleep 60
 
 ping -c 5 www.google.it
 if [ $? -ne "0" ]; then
-logger "exec: ping fail, sleep 60"
+logger "exec: ping fail, sleep 120"
 sleep 120
 fi
 
