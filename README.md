@@ -1,125 +1,145 @@
-# Watchdog for restart connecting with proto MBIM or QMI for Openwrt.
+# Watchdog LTE MBIM/QMI for OpenWrt
 
-I test on my Openwrt LTE5398-M904 with the LTE module in MBIM
+Daemon to monitor LTE connections (MBIM/QMI) on OpenWrt.
+Automatically restarts the WAN interface if the connection is lost.
+Tested on **OpenWrt LTE5398-M904** (MBIM).
 
-Thanks to the work of "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
+Credits:
+**yosh781** – [Daemon-modem-watchdog_qmi-for-Openwrt](https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt),
+**@antonk** – [OpenWrt forum: sample procd init script](https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977).  
 
-Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
+---
 
-----------------------------------------------------------------------------------------------------------------------------------------------
+Preferences:
+Store scripts in `/root/bin/`. Preserve files on upgrade by adding `/root` and `/etc/init.d/watchdog_mbim` to `/etc/sysupgrade.conf`.
+**Start daemon ~10 min after boot** to avoid conflicts with first WAN initialization.  
 
-### Some of my preferences
+---
 
-I prefer to put all the scripts in "/root/bin/" directory
+How it works: checks LTE status via:
 
-Add "/root" + "/etc/init.d/watchdog_mbim" into /etc/sysupgrade.conf so that they are preserved by sysupgrade
+```
+# MBIM
+uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status
+# QMI
+uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status
+```
 
-<b>
-I advice starting the daemon 10 minutes after the router boots,
+Detects unresponsive modems. On failure, daemon safely restarts WAN. Example:
 
-so that there is no interference during the first connection
-</b>
-
-If you notice any inconsistencies in the documentation, please let me know.
-
-----------------------------------------------------------------------------------------------------------------------------------------------
-
-### What is it based on?
-
-It is based on returning the connection status of this command:
-
-uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status (for MBIM)
-</br>
-uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status (for QMI)
-
-A 20 second timeout has been added so that if it doesn't respond within that time,
-an error is detected and internet connectivity is restarted.
-
-Theoretically the "uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status" command should respond in:
 ```
 time uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status
 "connected"
-real    0m 0.25s
-user    0m 0.00s
-sys     0m 0.00s
+real    0m0.25s
+user    0m0.00s
+sys     0m0.00s
 ```
 
-the normal state of important script variables:
+Variables:
+
 ```
-ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); # return "connected"
-lteerror=$?; # return 0
-ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
+ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2>/dev/null)  # "connected"
+lteerror=$?                                                                   # 0
+ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")                        # 1
 ```
 
-----------------------------------------------------------------------------------------------------------------------------------------------
+Delay start (~10 min) to avoid: system date corrections or WAN first connection issues.
+References:
+```
+https://forum.openwrt.org/t/openwrt-out-of-sync-even-though-ntp-is-enabled/234493/6
+https://forum.openwrt.org/t/retroactivelly-change-logs-timestamp/206872/5
+https://forum.openwrt.org/t/kernel-timestamps-are-6-days-behind-on-reboot/139872
+https://forum.openwrt.org/t/lte-o2-and-t-d1-work-but-vodafone-d2-does-not/43160
+https://forum.openwrt.org/t/trouble-registering-private-apn-on-teltonika-rut955-with-openwrt/170960
+```
 
-### Activates the watchdog service after 10 minutes of router startup
+Required packages in addition to those mentioned in this guide https://openwrt.org/docs/guide-user/network/wan/wwan/ltedongle:
 
-I preferred to activate the service after 10 minutes to avoid the following issues:
+```
+- timeout       Command timeout handling
+- at            Scheduling delayed tasks (atd)
+- uqmi          MBIM/QMI modem management
+- umbim         MBIM modem management
+``` 
 
-1. Correction of the system date, as the date is set with
-   the most recent file found in the "/etc" directory.
-   </br>
-   https://forum.openwrt.org/t/openwrt-out-of-sync-even-though-ntp-is-enabled/234493/6
-   </br>
-   https://forum.openwrt.org/t/retroactivelly-change-logs-timestamp/206872/5
-   </br>
-   https://forum.openwrt.org/t/kernel-timestamps-are-6-days-behind-on-reboot/139872
+Install via:
+```
+opkg update
+opkg install coreutils-timeout atd kmod-usb-net-qmi-wwan uqmi luci-proto-qmi kmod-usb-serial-option picocom kmod-usb-net-cdc-mbim umbim luci-proto-mbim
+```
 
-3. The first connection may not align with the correct parameters defined by your "ISP."
-   </br>
-   https://forum.openwrt.org/t/lte-o2-and-t-d1-work-but-vodafone-d2-does-not/43160
-   </br>
-   https://forum.openwrt.org/t/trouble-registering-private-apn-on-teltonika-rut955-with-openwrt/170960
-
-----------------------------------------------------------------------------------------------------------------------------------------------
-
-## If you like how the service has been implemented here are the things that need to be done
-
-### Edit the /etc/rc.local file which will look something like this:
-
-cat /etc/rc.local
+Setup: add delay start in /etc/rc.local:
 ```
 # Put your custom commands here that should be executed once
 # the system init finished. By default this file does nothing.
 
-logger "exec: sleep 60 for activated wan uplink"
-sleep 60
+# Connectivity check function with delay
+check_ping_with_delay() {
+    target="$1"
+    ping -c 5 -W 1 "$target" > /dev/null 2>&1
+    status=$?
 
-ping -c 5 www.google.it
-if [ $? -ne "0" ]; then
-logger "exec: ping fail, sleep 120"
-sleep 120
-fi
+    if [ "$status" -eq "0" ]; then
+        logger "ping $target successful"
+        return 0
+    else
+        logger "ping $target failed, sleep 60"
+        sleep 60
+        return 1
+    fi
+}
 
-ntpd -dnq -p pool.ntp.org > /tmp/boot/boot_ntpd 2>&1
-if [ $? -eq "0" ]; then
-sleep 5
-/etc/init.d/sysntpd restart
-sleep 120
-    if [ -x /etc/init.d/watchdog_mbim ]; then
-    sleep 300
-    /etc/init.d/watchdog_mbim start
+# NTP update
+check_ping_with_delay 9.9.9.9
+status1=$?
+if [ "$status1" -eq 0 ]; then
+    logger "WAN is up, starting one-shot NTP synchronization"
+    ntpd -nq -p pool.ntp.org > /dev/null 2>&1
+    status2=$?
+    if [ "$status2" -eq "0" ]; then
+        logger "NTP sync successful"
+        sleep 2
+        /etc/init.d/sysntpd restart
+        sleep 2
+    else
+        logger "NTP did not adjust system time"
     fi
 else
-logger "exec: ntpd fail update date"
+    logger "WAN not ready, skipping NTP synchronization"
+fi
+
+
+# atd and watchdog_mbim scheduling
+check_ping_with_delay www.google.it
+status3=$?
+if [ -x /etc/init.d/atd ] && [ "$status3" -eq "0" ] && [ -x /etc/init.d/watchdog_mbim ]; then
+        /etc/init.d/atd reload
+        logger "run echo \"/etc/init.d/watchdog_mbim start\" | at now+10minutes"
+        echo "/etc/init.d/watchdog_mbim start" | at now+10minutes
+else
+        logger "Ping check failed, waiting 300s before starting watchdog"
+        sleep 300
+        /etc/init.d/watchdog_mbim start
 fi
 
 exit 0
 ```
 
-### What to do after:
+Download & install scripts:
 
 ```
 cd /tmp
-wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim
-wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim_script
+wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/main/watchdog_mbim
+wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/main/watchdog_mbim_script
+wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/main/watchdog_mbim.conf
 mv watchdog_mbim /etc/init.d/watchdog_mbim
-mkdir /root/bin/
+mv watchdog_mbim.conf /etc/
+mkdir -p /root/bin/
 mv watchdog_mbim_script /root/bin/watchdog_mbim
 chmod +x /etc/init.d/watchdog_mbim
-chmod +x /root/bin/modem_watchdog_mbim
+chmod +x /root/bin/watchdog_mbim
 echo "/root/" >> /etc/sysupgrade.conf
 echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
+echo "/etc/watchdog_mbim.conf" >> /etc/sysupgrade.conf
 service watchdog_mbim start
 ```
