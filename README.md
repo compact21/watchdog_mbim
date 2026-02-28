@@ -89,6 +89,13 @@ check_ping_with_delay() {
     fi
 }
 
+# Create temporary directories
+mkdir -p /tmp/watchdog
+
+# Wait 60 seconds for WAN
+logger "sleep 60 to wait for WAN uplink"
+sleep 60
+
 # NTP update
 check_ping_with_delay 9.9.9.9
 status1=$?
