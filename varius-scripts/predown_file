@@ -1,9 +1,0 @@
-#!/bin/sh
-watchdog_predown_file="/tmp/watchdog/predown_file"
-atcmd_file="/tmp/watchdog/at_command"; # file log commands pre/post down interface
-
-#echo "$(date)" >> "$atcmd_file"
-#picocom /dev/ttyUSB2 --exit-after 300 --quiet -t $(printf "AT+COPS?\r\n") --logfile "$atcmd_file" 2>&1
-picocom /dev/ttyUSB2 --exit-after 300 --quiet -t $(printf "AT+COPS?\r\n") 2>&1
-
-#logger "exec: $watchdog_predown_file create file $atcmd_file"
