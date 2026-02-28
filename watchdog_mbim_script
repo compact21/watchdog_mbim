@@ -254,12 +254,11 @@ safe_ifup() {
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: lock acquired"
 
         # check pending state
-        pending=$(ubus call network.interface.$iface status 2>/dev/null | jsonfilter -e '@.pending')
-        if [ "$pending" = "true" ]; then
+        ubus call network.interface.$iface status 2>/dev/null | grep -q '"pending": true' && {
                 logger -t "$logheader" "safe_ifup: interface $iface is pending, aborting"
                 rm -f "$LOCKFILE" "$LOCKFILE_DATE"
                 return
-        fi
+        }
 
         # Debug
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: bringing $iface down"
@@ -315,15 +314,15 @@ trap cleanup TERM INT
 
 # ------------------ MAIN LOOP ----------------------------------------
 
+# Reset counter on WAN restart
+count=0
+
 # Check WAN protocol and exit if it is not MBIM or QMI
-lteproto=$(uci -q get network.wan.proto)
+lteproto=$(uci -q get network.wan.proto 2>/dev/null)
 if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
         logger -t "$logheader" "main: WAN interface is not using mbim or qmi"
         exit 1
 fi
-
-# Reset counter on WAN restart
-count=0
 
 while true; do
         count=$((count+1))
