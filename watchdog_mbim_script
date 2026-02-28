@@ -354,12 +354,12 @@ while true; do
         count=$((count+1))
 
         # Re-check WAN protocol each loop to handle runtime config changes. Stay idle if proto is not mbim/qmi.
-        get_lte_proto log
-        if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
-                logger -t "$logheader" "main: WAN is no longer mbim/qmi, watchdog idle"
-                sleep "$delay"
-                continue
-        fi
+        #get_lte_proto log
+        #if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
+        #        logger -t "$logheader" "main: WAN is no longer mbim/qmi, watchdog idle"
+        #        sleep "$delay"
+        #        continue
+        #fi
 
         # Check if watchdog_block_file exists; if yes, skip this iteration
         if [ -f "$watchdog_block_file" ]; then
