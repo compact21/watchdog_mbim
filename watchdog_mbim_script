@@ -1,173 +1,478 @@
 #!/bin/sh
-# Daemon for qmi/mbim. ifup LTE connection
+# Watchdog daemon for LTE QMI/MBIM connections on OpenWrt
+# Monitors WAN connectivity and restarts the interface if disconnected
 #
-# Thanks "yosh781" from "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
-# Thanks "@antonk" from "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
+# Thanks to:
+# "yosh781" "https://github.com/yosh781/Daemon-modem-watchdog_qmi-for-Openwrt"
+# "@antonk" "https://forum.openwrt.org/t/create-a-sample-procd-init-script/230977"
 
-#set -x; # show this "https://forum.openwrt.org/t/qmi-ec25-v-verizon-problems/145970"
+# ------------------ CONFIGURATION ------------------------------------
 
-delay="5"; # idle time between connectivity checks
+logheader="watchdog_mbim"
+PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+CONFIG_FILE="/etc/watchdog_mbim.conf"
 
-delay_reconnect="90"; # reconnect time after  "ifup wan" prevent "race condition"
+# Configuration file check
+if [ ! -f "$CONFIG_FILE" ]; then
+        # If the original configuration file does not exist log and exit
+        logger -t "$logheader" "init: configuration file $CONFIG_FILE missing, exiting"
+        exit 1
+else
+        # Copy $CONFIG in /tmp/watchdog/mbim.conf
+        if [ ! -f "/tmp/watchdog/mbim.conf" ]; then
+                cp "$CONFIG_FILE" "/tmp/watchdog/mbim.conf" || { 
+                logger -t "$logheader" "init: cannot copy $CONFIG_FILE /tmp/watchdog/mbim.conf"
+                exit 1
+                }
+        fi
 
-watchdog_debug_file="/tmp/watchdog/mbim_debug"; # create file for debug script
-
-watchdog_block_file="/tmp/watchdog/mbim_block"; # create file for block script
-
-atcmd_block_file="/tmp/watchdog/atcmd_block"; # block exec atcmd commands
-
-logheader="exec: /root/watchdog_mbim:"; # logger header message
-
-trap "exit 0" INT TERM
-
-lteinterface=$(uci -q get network.wan)
-if [ "$lteinterface" != "interface" ]; then
-    logger "$logheader Interface wan not found in network config"
-    exit 0
+        # In all cases, use the temporary file as CONFIG_FILE
+        # to allow runtime modifications without touching the original config
+        CONFIG_FILE="/tmp/watchdog/mbim.conf"
 fi
 
-lteproto=$(uci -q get network.wan.proto)
+logger -t "$logheader" "init: using configuration file: $CONFIG_FILE"
+
+# Load all variables from the copy configuration file
+# shellcheck disable=SC1090
+. "$CONFIG_FILE"
+
+# ------------------ DEFAULT / FALLBACK VARIABLES ---------------------
+
+# LOG HEADER
+logheader=${logheader:-"watchdog_mbim"}
+
+# Watchdog directories and files
+# Use config values if defined, otherwise fall back to defaults
+watchdog_directory=${watchdog_directory:-/tmp/watchdog}                    # working directory for watchdog runtime files
+watchdog_debug_file=${watchdog_debug_file:-/tmp/watchdog/mbim_debug}       # file to enable debug logging at runtime
+watchdog_block_file=${watchdog_block_file:-/tmp/watchdog/watchdog.block}   # presence disables watchdog iteration
+atcmd_block_file=${atcmd_block_file:-/tmp/watchdog/atcmd_block}            # block file for external AT command scripts
+
+# Optional pre-down / post-up scripts
+watchdog_predown_file=${watchdog_predown_file:-/tmp/watchdog/predown.sh}
+watchdog_postup_file=${watchdog_postup_file:-/tmp/watchdog/postup.sh}
+
+# Loop timing
+delay=${delay:-20}                                                         # seconds to sleep between iterations
+delay_reconnect=${delay_reconnect:-120}                                    # delay after WAN reconnect to allow stabilization
+
+# Ping test configuration
+ping_target=${ping_target:-"8.8.8.8"}                                      # host used for connectivity test
+ping_timeout_sec=${ping_timeout_sec:-300}                                  # maximum time allowed for ping test before marking failure
+ping_lock=${ping_lock:-/tmp/watchdog/ping_lock}                            # lock file to prevent multiple concurrent ping tests
+
+
+# ------------------ Variable to track disconnect status --------------
+
+wan_disconnected=0
+ping_failed_flag="$watchdog_directory/ping_failed"
+
+# ------------------ LOCK FILE function safe_ifup ---------------------
+# Define lock file path (indicates if another ifup is currently running)
+LOCKFILE="$watchdog_directory/ifup_lock"
+# Define lock file path (for too old process)
+LOCKFILE_DATE="$watchdog_directory/ifup_lock_date"
+
+# ------------------ DEPENDENCY CHECK ---------------------------------
+
+# Ensure watchdog directory exists
+mkdir -p "$watchdog_directory" 2>/dev/null || { logger -t "$logheader" "init: cannot create directory $watchdog_directory"; exit 1; }
+
+
+REQUIRED_BINS="uqmi umbim timeout"
+missing=""
+
+for bin in $REQUIRED_BINS; do
+        if ! command -v "$bin" >/dev/null 2>&1; then
+                missing="$missing $bin"
+        fi
+done
+
+if [ -n "$missing" ]; then
+        logger -t "$logheader" "init: missing required binaries:$missing, watchdog not started"
+        exit 1
+fi
+
+if ! ubus call network.interface.wan status >/dev/null 2>&1; then
+        logger -t "$logheader" "init: WAN interface not found"
+        exit 1
+fi
+
+# ------------------ FUNCTIONS ----------------------------------------
+
+# Cleanup child processes
+# shellcheck disable=SC2329
+cleanup() {
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "cleanup: terminating watchdog"
+
+        # Remove file
+        rm -f "$ping_lock" "$atcmd_block_file" "$LOCKFILE" "$LOCKFILE_DATE"
+
+        exit 0
+}
+
+# Get WAN protocol
+get_lte_proto() {
+        # Optional first argument: "log" to enable debug logging
+        local do_log="$1"
+
+        # Attempt to read the WAN protocol from UCI
+        lteproto=$(uci -q get network.wan.proto 2>/dev/null || echo "")
+
+        # If UCI fails or returns empty, try a fallback using ubus
+        if [ -z "$lteproto" ]; then
+                lteproto=$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@.proto' || echo "")
+                # If still empty, assign a safe default
+                [ -z "$lteproto" ] && lteproto="unknown"
+        fi
+
+        # Log only if requested
+        if [ "$do_log" = "log" ] && [ -f "$watchdog_debug_file" ]; then
+                logger -t "$logheader" "get_lte_proto: detected protocol = $lteproto"
+        fi
+}
+
+# Ping Test
+ping_test() {
+        [ -f "$ping_lock" ] && return
+
+        touch "$ping_lock"
+        rm -f "$ping_failed_flag"
+
+        ping_start_ts=$(date +%s)
+
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "ping_test: started (timeout=${ping_timeout_sec}s)"
+
+        while :; do
+                # Send a single ping to check connectivity
+                ping -c 1 -W 1 "$ping_target" >/dev/null 2>&1
+                ping_error=$?
+                if [ "$ping_error" -eq "0" ]; then
+                        now_ts=$(date +%s)
+                        delta=$((now_ts - ping_start_ts))
+                        logger -t "$logheader" "ping_test: WAN reachable after ${delta}s (target $ping_target)"
+                        rm -f "$ping_lock"
+                        return
+                fi
+
+                # Check if global ping timeout has been exceeded.
+                # If so, mark connection as failed for recovery handling.
+                now_ts=$(date +%s)
+                if [ $((now_ts - ping_start_ts)) -ge "$ping_timeout_sec" ]; then
+                        logger -t "$logheader" "ping_test: timeout after ${ping_timeout_sec}s (no connectivity)"
+                        touch "$ping_failed_flag"
+                        rm -f "$ping_lock"
+                        return
+                fi
+
+                sleep 1
+        done
+}
+
+# Check MBIM/QMI connection status (other protocols treated as disconnected)
+get_lte_status() {
+        # Get the WAN protocol (mbim/qmi)
+        get_lte_proto
+
+        lte_status_start_ts=$(date +%s)
+
+        max_retries=5       # Maximum number of retries
+        timeout_sec=10      # Timeout for each uqmi call (seconds)
+        sleep_between=1     # Sleep between retries (seconds)
+        attempt=1
+        lteerror=1
+        ltestatus=""
+
+        while [ $attempt -le $max_retries ]; do
+                if [ "$lteproto" = "mbim" ]; then
+                        # Query MBIM modem status with timeout
+                        ltestatus=$(timeout "$timeout_sec" uqmi -m -d /dev/cdc-wdm0 --get-data-status 2>/dev/null)
+                        lteerror=$?
+                elif [ "$lteproto" = "qmi" ]; then
+                        # Query QMI modem status with timeout
+                        ltestatus=$(timeout "$timeout_sec" uqmi -d /dev/cdc-wdm0 --get-data-status 2>/dev/null)
+                        lteerror=$?
+                else
+                        # WAN is not MBIM/QMI, treat as disconnected
+                        ltestatus=""
+                        lteerror=1
+                        break
+                fi
+
+                # If uqmi succeeded, break the retry loop
+                if [ "$lteerror" -eq 0 ]; then
+                        # Command succeeded, modem responded
+                        break
+                elif [ "$lteerror" -eq 124 ]; then
+                        # Timeout occurred, increment attempt and retry
+                        attempt=$((attempt + 1))
+                        [ $attempt -le $max_retries ] && sleep "$sleep_between"
+                else
+                        # Other serious error, exit retry loop
+                        break
+                fi
+        done
+
+        lte_status_end_ts=$(date +%s)
+        lte_status_delta=$((lte_status_end_ts - lte_status_start_ts))
+
+        # Parse connection status evalutate variable ltestatus
+        if [ -n "$ltestatus" ]; then
+                ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
+        else
+        ltefind=0
+        fi
+
+        # Logging
+        if [ "$ltefind" -eq 0 ] || [ "$lteerror" -ne 0 ]; then
+                logger -t "$logheader" "get_lte_status: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind"
+                # Debug
+                [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "get_lte_status: delta=${lte_status_delta}s attempt=${attempt}"
+        fi
+}
+
+# Safely restarts the interface via ubus, preventing concurrent executions
+safe_ifup() {
+        # Save start timestamp
+        safe_ifup_start_ts=$(date +%s)
+
+        iface="wan"
+
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: invoked (pid=$$)"
+
+        # stale lock: PID dead
+        if [ -f "$LOCKFILE" ] && ! kill -0 "$(cat "$LOCKFILE" 2>/dev/null)" 2>/dev/null; then
+                logger -t "$logheader" "safe_ifup: stale lock detected (dead pid), removing"
+                rm -f "$LOCKFILE" "$LOCKFILE_DATE"
+        fi
+
+        # Remove stale lock if older than 300 seconds.
+        # This protects against cases where the previous process crashed
+        # without releasing the lock.
+        if [ -f "$LOCKFILE_DATE" ]; then
+                lock_ts=$(cat "$LOCKFILE_DATE" 2>/dev/null)
+                now_ts=$(date +%s)
+                if [ -n "$lock_ts" ] && [ $((now_ts - lock_ts)) -gt 300 ]; then
+                        logger -t "$logheader" "safe_ifup: stale lock too old ($((now_ts - lock_ts))s), removing"
+                        rm -f "$LOCKFILE" "$LOCKFILE_DATE"
+                fi
+        fi
+
+        # lock exists, skip
+        if [ -f "$LOCKFILE" ]; then
+                logger -t "$logheader" "safe_ifup: another ifup already running, skipping"
+                return
+        fi
+
+        # Create lock file and store current PID
+        echo $$ > "$LOCKFILE"
+
+        # Create lock file and store current date
+        echo "$(date +%s)" > "$LOCKFILE_DATE"
+
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: lock acquired"
+
+        # check pending state
+        pending=$(ubus call network.interface.$iface status 2>/dev/null | jsonfilter -e '@.pending')
+        if [ "$pending" = "true" ]; then
+                logger -t "$logheader" "safe_ifup: interface $iface is pending, aborting"
+                rm -f "$LOCKFILE" "$LOCKFILE_DATE"
+                return
+        fi
+
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: bringing $iface down"
+
+        # ubus call network.interface.$iface down
+        timeout --preserve-status -k 2 10 ubus call network.interface.$iface down >/dev/null 2>&1
+        rc=$?
+
+        # Logging
+        if [ "$rc" -eq 124 ]; then
+                logger -t "$logheader" "safe_ifup: $iface down timed out"
+        elif [ "$rc" -ne 0 ]; then
+                logger -t "$logheader" "safe_ifup: $iface down failed (exit=$rc)"
+        fi
+
+        # Micro sleep
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: sleep 3"
+        sleep 3
+
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: bringing $iface up"
+
+        # ubus call network.interface.$iface up
+        timeout --preserve-status -k 2 10 ubus call network.interface.$iface up >/dev/null 2>&1
+        rc=$?
+
+        # Logging
+        if [ "$rc" -eq 124 ]; then
+                logger -t "$logheader" "safe_ifup: $iface up timed out"
+        elif [ "$rc" -ne 0 ]; then
+                logger -t "$logheader" "safe_ifup: $iface up failed (exit=$rc)"
+        else
+                logger -t "$logheader" "safe_ifup: $iface up succeeded"
+        fi
+
+        safe_ifup_end_ts=$(date +%s)
+        safe_ifup_duration=$((safe_ifup_end_ts - safe_ifup_start_ts))
+
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: finished safe_ifup_duration=${safe_ifup_duration}s"
+
+        # remove lock files
+        rm -f "$LOCKFILE" "$LOCKFILE_DATE"
+
+        # Debug
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: lock released"
+}
+
+# ------------------ SIGNAL HANDLING ----------------------------------
+
+# Catch SIGTERM and SIGINT: terminate daemon immediately
+trap cleanup TERM INT
+
+
+# ------------------ MAIN LOOP ----------------------------------------
+
+# Check WAN protocol and exit if it is not MBIM or QMI
+get_lte_proto
 if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
-    logger "$logheader WAN interface is not using mbim or qmi"
-    exit 0
+        logger -t "$logheader" "main: WAN interface is not using mbim or qmi"
+        exit 1
 fi
 
+# Reset counter on WAN restart
 count=0
 
 while true; do
+        count=$((count+1))
 
-    # exec varius scripts
-    watchdog_predown_file="/tmp/watchdog/predown_file"; # create file for exec command pre down interface
-    watchdog_postdown_file="/tmp/watchdog/postdown_file"; # create file for exec command post down interface
-    watchdog_ping_test="/tmp/watchdog/ping_test"; # create file for exec ping test internet connection
-    watchdog_ping_pid="/tmp/watchdog/ping_pid"
+        # Re-check WAN protocol each loop to handle runtime config changes. Stay idle if proto is not mbim/qmi.
+        get_lte_proto log
+        if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
+                logger -t "$logheader" "main: WAN is no longer mbim/qmi, watchdog idle"
+                sleep "$delay"
+                continue
+        fi
 
-    count=$((count+1))
-    status=$(ubus call service list '{ "name": "watchdog_mbim" }' | grep -c '"running": true')
-
-    # if service is running and this file exists exec: /etc/init.d/watchdog_mbim stop
-    if [ "$status" -eq 1 ]; then
+        # Check if watchdog_block_file exists; if yes, skip this iteration
         if [ -f "$watchdog_block_file" ]; then
-        logger "$logheader the file /tmp/watchdog_mbim_block exists; /etc/init.d/watchdog_mbim stop; exit 0"
-        /etc/init.d/watchdog_mbim stop; # from "https://forum.openwrt.org/t/start-and-stop-a-service-while-pushing-wps-button/191871/19"
-        exit 0
+                logger -t "$logheader" "main: watchdog_block_file exists ($watchdog_block_file), skipping iteration"
+                sleep "$delay"
+                continue
         fi
-    else
+
+        # Forced MBIM disconnect if ping timeout detected
+        if [ -f "$watchdog_directory/ping_failed" ]; then
+                rm -f "$watchdog_directory/ping_failed"
+
+                if [ "$lteproto" = "mbim" ]; then
+                        logger -t "$logheader" "main: ping timeout detected -> forcing MBIM disconnect"
+
+                        # disconnect MBIM modem with timeout (TERM after 5s, KILL after 2s)
+                        timeout --preserve-status -k 2 5 umbim -d /dev/cdc-wdm0 disconnect >/dev/null 2>&1
+                        rc=$?
+
+                        if [ "$rc" -eq 124 ]; then
+                                logger -t "$logheader" "main: umbim disconnect timed out after 5s"
+                        elif [ "$rc" -ne 0 ]; then
+                                logger -t "$logheader" "main: umbim disconnect failed with exit code $rc"
+                        else
+                                logger -t "$logheader" "main: umbim disconnect succeeded"
+                        fi
+
+                        # Micro sleep
+                        sleep 3
+
+                        # call function safe_ifup
+                        safe_ifup
+
+                        continue
+                fi
+        fi
+
+        # Check LTE/QMI/MBIM connection status
+        get_lte_status
+
+        # Offline detection
+        if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
+
+                # Event: lost connection detected by modem (MBIM/QMI).
+                # Triggered if:
+                #   - uqmi does not report "connected"
+                #   - uqmi fails or times out after multiple retries
+                # Total worst-case detection time depends on max_retries * timeout_sec.
+                logger -t "$logheader" "main: lost connection detected, invoking safe_ifup"
+
+                # Diagnostic: modem status from uqmi/mbim
+                [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: modem status: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind"
+
+                # Context: iteration count and delay settings (for tracking reconnection timing)
+                [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: count=$count delay=$delay delay_reconnect=$delay_reconnect"
+
+                # mark disconnect event
+                wan_disconnected=1
+
+                # Execute pre-down script if available
+                [ -x "$watchdog_predown_file" ] && "$watchdog_predown_file"
+
+                # call function safe_ifup
+                safe_ifup
+
+                # Create AT command block file.
+                # This file is used by external tools/scripts (e.g. atcmd) to temporarily
+                # prevent AT commands from being sent to the modem during recovery.
+                touch "$atcmd_block_file"
+
+                # Start ping test in background if not already running
+                if [ ! -f "$ping_lock" ]; then
+                        ping_test &
+                else
+                        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: ping_test already running, skipping"
+                fi
+
+                # Long delay_reconnect: gives WAN time to stabilize and prevents potential race conditions
+                sleep "$delay_reconnect"
+
+                # Reset reconnection counter after WAN restart; used only for debug/logging purposes
+                count=0
+
+                continue
+
+        fi
+
+        # Online status
+        if [ "$ltefind" -eq 1 ] && [ "$lteerror" -eq 0 ]; then
+                if [ "$wan_disconnected" -eq 1 ]; then
+                        # Execute post-up script if available
+                        [ -x "$watchdog_postup_file" ] && "$watchdog_postup_file"
+
+                        # reset disconnect flag
+                        wan_disconnected=0
+
+                        # Optional cleanup of temporary core dumps.
+                        # Actual cleanup logic is delegated to /root/cleanup_tmp_core.sh if present.
+                        [ -x /root/cleanup_tmp_core.sh ] && timeout --preserve-status -k 2 5 /root/cleanup_tmp_core.sh >/dev/null 2>&1
+                else
+                        # Debug log: everything is ok
+                        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: WAN online, everything is ok"
+                fi
+        fi
+
+        # Cleanup atcmd_block_file
         if [ -f "$atcmd_block_file" ]; then
-        rm "$atcmd_block_file"
-        fi
-    fi
-
-    if [ ! -d /tmp/watchdog ]; then
-        mkdir /tmp/watchdog
-    fi
-
-    if [ "$lteproto" = "mbim" ]; then
-    ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
-    lteerror=$?
-    ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
-    fi
-
-    if [ "$lteproto" = "qmi" ]; then
-    ltestatus=$(uqmi -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null)
-    lteerror=$?
-    ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
-    fi
-
-    if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
-
-        # uqmi does not return "connected" or uqmi not response into 20 sec
-        logger "$logheader lost connection detected, or uqmi not respond into 20 sec, exec ifup wan"
-        if [ -n "$wanuptime" ]; then
-        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror wanuptime=$wanuptime delay=$delay delay_reconnec=$delay_reconnect"
-        else
-        logger "$logheader count=$count ltestatus=$ltestatus lteerror=$lteerror delay=$delay delay_reconnec=$delay_reconnect"
+                [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: removing AT command block file: $atcmd_block_file"
+                rm -f "$atcmd_block_file"
         fi
 
-        # exec ping_test if present
-        if [ -x "$watchdog_ping_test" ]; then
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: $watchdog_ping_test start"
-        fi
-        $watchdog_ping_test &
-        fi
-
-        # exec command predown interface if present
-        if [ -x "$watchdog_predown_file" ]; then
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: $watchdog_predown_file"
-        fi
-        $watchdog_predown_file
-        fi
-
-        # debug mode
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "$logheaderdebug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status"
-        fi
-
-        # ifdown not necessary from: https://forum.openwrt.org/t/what-is-the-command-to-restart-wan6/107810/2
-        ifup wan
-
-        # block exec atcmd commands view /root/atcmd
-        touch "$atcmd_block_file"
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: create $atcmd_block_file"
-        fi
-
-        sleep "$delay_reconnect"; # sleep prevent "race condition"
-
-        # exec command post down interface if present
-        if [ -x "$watchdog_postdown_file" ]; then
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "exec: $watchdog_postdown_file"
-        fi
-        $watchdog_postdown_file
-        fi
-
-        if [ -f "$watchdog_debug_file" ]; then
-        logger "$logheader debug end time delay_reconnec=$delay_reconnect after running postdown command if present"
-        fi
-
-        break
-    fi
-
-    # if after about 3 minutes, 180 seconds / 5 seconds of "$delay" it is still not connected it proceeds to kill the "$watchdog_ping_test" process
-    # set -x; logread | grep -E "1 -eq 36|36 -eq 36"
-    # Sun Aug 10 13:27:34 2025 daemon.err watchdog_mbim[5167]: + '[' 1 -eq 36 ]
-    # Sun Aug 10 13:30:38 2025 daemon.err watchdog_mbim[5167]: + '[' 36 -eq 36 ]
-    if [ "$count" -eq "36" ] && [ -f "$watchdog_ping_pid" ]; then
-        logger "exec: kill $watchdog_ping_test process"
-        kill -9 "$(cat $watchdog_ping_pid)"
-        rm "$watchdog_ping_pid"
-    fi
-
-    # online status
-    if [ "$ltefind" -eq "1" ] && [ "$lteerror" -eq "0" ]; then
-
-        # discovers WAN uptime
-        wanstatus=$(cat /sys/class/net/wwan0/carrier 2> /dev/null)
-        if [ "$wanstatus" -eq "1" ]; then
-        wanuptime=$(ubus call network.interface.wan_4 status | grep 'uptime' | grep -o '[0-9]\+')
-        export wanuptime
-        fi
-
-        # debug mode
-        if [ -f "$watchdog_debug_file" ]; then
-        if [ -n "$wanuptime" ]; then
-        logger "$logheader debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind wanuptime=$wanuptime count=$count status=$status delay=$delay"
-        else
-        logger "$logheader debug ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind count=$count status=$status delay=$delay"
-        fi
-        fi
-
-        # remove atcmd_block_file
-        if [ -f "$atcmd_block_file" ]; then
-        rm "$atcmd_block_file"
-        fi
-
-    fi
-
-    sleep "$delay"; # idle time between connectivity checks
+        # Wait before next iteration
+        sleep "$delay"
 
 done
 
