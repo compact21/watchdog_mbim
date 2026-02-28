@@ -10,7 +10,7 @@ Thanks "@antonk" to the support from "https://forum.openwrt.org/t/create-a-sampl
 
 ### Some of my preferences
 
-I prefer to put all the scripts in "/root" directory
+I prefer to put all the scripts in "/root/bin/" directory
 
 Add "/root" + "/etc/init.d/watchdog_mbim" into /etc/sysupgrade.conf so that they are preserved by sysupgrade
 
@@ -50,25 +50,6 @@ ltestatus=$(uqmi -m -d /dev/cdc-wdm0 -t 20000 --get-data-status 2> /dev/null); #
 lteerror=$?; # return 0
 ltefind=$(echo "$ltestatus" | grep -c "\"connected\""); # return "1"
 ```
-
-----------------------------------------------------------------------------------------------------------------------------------------------
-
-### Various scripts
-
-Scripts have been added that can run commands before restarting the interface and after the interface has been restarted.
-
-```
-watchdog_predown_file="/tmp/watchdog/predown_file"
-https://github.com/compact21/watchdog_mbim/blob/main/varius-scripts/predown_file
-
-watchdog_postdown_file="/tmp/watchdog/postdown_file"
-https://github.com/compact21/watchdog_mbim/blob/main/varius-scripts/postdown_file
-
-watchdog_ping_test="/tmp/watchdog/ping_test"
-https://github.com/compact21/watchdog_mbim/blob/main/varius-scripts/ping_test
-```
-These are not necessary for the daemon to function but can help detect reconnection time,
-or in case you want to run specific commands when a loss of connectivity is detected.
 
 ----------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -134,9 +115,10 @@ cd /tmp
 wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim
 wget --no-hsts https://raw.githubusercontent.com/compact21/watchdog_mbim/refs/heads/main/watchdog_mbim_script
 mv watchdog_mbim /etc/init.d/watchdog_mbim
-mv watchdog_mbim_script /root/watchdog_mbim
+mkdir /root/bin/
+mv watchdog_mbim_script /root/bin/watchdog_mbim
 chmod +x /etc/init.d/watchdog_mbim
-chmod +x /root/modem_watchdog_mbim
+chmod +x /root/bin/modem_watchdog_mbim
 echo "/root/" >> /etc/sysupgrade.conf
 echo "/etc/init.d/watchdog_mbim" >> /etc/sysupgrade.conf
 service watchdog_mbim start
