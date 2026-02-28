@@ -113,27 +113,6 @@ cleanup() {
         exit 0
 }
 
-# Get WAN protocol
-get_lte_proto() {
-        # Optional first argument: "log" to enable debug logging
-        local do_log="$1"
-
-        # Attempt to read the WAN protocol from UCI
-        lteproto=$(uci -q get network.wan.proto 2>/dev/null || echo "")
-
-        # If UCI fails or returns empty, try a fallback using ubus
-        if [ -z "$lteproto" ]; then
-                lteproto=$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@.proto' || echo "")
-                # If still empty, assign a safe default
-                [ -z "$lteproto" ] && lteproto="unknown"
-        fi
-
-        # Log only if requested
-        if [ "$do_log" = "log" ] && [ -f "$watchdog_debug_file" ]; then
-                logger -t "$logheader" "get_lte_proto: detected protocol = $lteproto"
-        fi
-}
-
 # Ping Test
 ping_test() {
         [ -f "$ping_lock" ] && return
@@ -174,9 +153,6 @@ ping_test() {
 
 # Check MBIM/QMI connection status (other protocols treated as disconnected)
 get_lte_status() {
-        # Get the WAN protocol (mbim/qmi)
-        get_lte_proto
-
         lte_status_start_ts=$(date +%s)
 
         max_retries=5       # Maximum number of retries
@@ -337,11 +313,10 @@ safe_ifup() {
 # Catch SIGTERM and SIGINT: terminate daemon immediately
 trap cleanup TERM INT
 
-
 # ------------------ MAIN LOOP ----------------------------------------
 
 # Check WAN protocol and exit if it is not MBIM or QMI
-get_lte_proto
+lteproto=$(uci -q get network.wan.proto)
 if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
         logger -t "$logheader" "main: WAN interface is not using mbim or qmi"
         exit 1
@@ -352,14 +327,6 @@ count=0
 
 while true; do
         count=$((count+1))
-
-        # Re-check WAN protocol each loop to handle runtime config changes. Stay idle if proto is not mbim/qmi.
-        #get_lte_proto log
-        #if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
-        #        logger -t "$logheader" "main: WAN is no longer mbim/qmi, watchdog idle"
-        #        sleep "$delay"
-        #        continue
-        #fi
 
         # Check if watchdog_block_file exists; if yes, skip this iteration
         if [ -f "$watchdog_block_file" ]; then
