@@ -108,7 +108,7 @@ cleanup() {
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "cleanup: terminating watchdog"
 
         # Remove file
-        rm -f "$ping_lock" "$atcmd_block_file" "$LOCKFILE" "$LOCKFILE_DATE"
+        rm -f "$ping_lock" "$atcmd_block_file" "$LOCKFILE" "$LOCKFILE_DATE" "$ping_failed_flag"
 
         exit 0
 }
@@ -335,8 +335,8 @@ while true; do
         fi
 
         # Forced MBIM disconnect if ping timeout detected
-        if [ -f "$watchdog_directory/ping_failed" ]; then
-                rm -f "$watchdog_directory/ping_failed"
+        if [ -f "$ping_failed_flag" ]; then
+                rm -f "$ping_failed_flag"
 
                 if [ "$lteproto" = "mbim" ]; then
                         logger -t "$logheader" "main: ping timeout detected -> forcing MBIM disconnect"
