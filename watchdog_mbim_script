@@ -42,6 +42,9 @@ logger -t "$logheader" "init: using configuration file: $CONFIG_FILE"
 # LOG HEADER
 logheader=${logheader:-"watchdog_mbim"}
 
+# Network interface
+iface=${iface:-"wan"}                  # WAN interface name used by ubus calls
+
 # Watchdog directories and files
 # Use config values if defined, otherwise fall back to defaults
 watchdog_directory=${watchdog_directory:-/tmp/watchdog}                    # working directory for watchdog runtime files
@@ -67,6 +70,7 @@ ping_lock=${ping_lock:-/tmp/watchdog/ping_lock}                            # loc
 
 wan_disconnected=0
 ping_failed_flag="$watchdog_directory/ping_failed"
+ping_test_pid=""
 
 # ------------------ LOCK FILE function safe_ifup ---------------------
 # Define lock file path (indicates if another ifup is currently running)
@@ -79,8 +83,7 @@ LOCKFILE_DATE="$watchdog_directory/ifup_lock_date"
 # Ensure watchdog directory exists
 mkdir -p "$watchdog_directory" 2>/dev/null || { logger -t "$logheader" "init: cannot create directory $watchdog_directory"; exit 1; }
 
-
-REQUIRED_BINS="uqmi umbim timeout"
+REQUIRED_BINS="uqmi umbim timeout jsonfilter"
 missing=""
 
 for bin in $REQUIRED_BINS; do
@@ -94,21 +97,28 @@ if [ -n "$missing" ]; then
         exit 1
 fi
 
-if ! ubus call network.interface.wan status >/dev/null 2>&1; then
+if ! ubus call network.interface.$iface status >/dev/null 2>&1; then
         logger -t "$logheader" "init: WAN interface not found"
         exit 1
 fi
 
 # ------------------ FUNCTIONS ----------------------------------------
 
-# Cleanup child processes
+# Cleanup child processes and runtime files
 # shellcheck disable=SC2329
 cleanup() {
         # Debug
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "cleanup: terminating watchdog"
 
-        # Remove file
-        rm -f "$ping_lock" "$atcmd_block_file" "$LOCKFILE" "$LOCKFILE_DATE" "$ping_failed_flag"
+        # Terminate background ping_test process if still running
+        [ -n "$ping_test_pid" ] && kill "$ping_test_pid" 2>/dev/null
+
+        # Remove runtime files
+        [ -n "$ping_lock" ]        && rm -f "$ping_lock"
+        [ -n "$atcmd_block_file" ] && rm -f "$atcmd_block_file"
+        [ -n "$LOCKFILE" ]         && rm -f "$LOCKFILE"
+        [ -n "$LOCKFILE_DATE" ]    && rm -f "$LOCKFILE_DATE"
+        [ -n "$ping_failed_flag" ] && rm -f "$ping_failed_flag"
 
         exit 0
 }
@@ -199,12 +209,12 @@ get_lte_status() {
         if [ -n "$ltestatus" ]; then
                 ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
         else
-        ltefind=0
+                ltefind=0
         fi
 
         # Logging
         if [ "$ltefind" -eq 0 ] || [ "$lteerror" -ne 0 ]; then
-                logger -t "$logheader" "get_lte_status: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind"
+                logger -t "$logheader" -- "get_lte_status: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind"
                 # Debug
                 [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "get_lte_status: delta=${lte_status_delta}s attempt=${attempt}"
         fi
@@ -214,8 +224,6 @@ get_lte_status() {
 safe_ifup() {
         # Save start timestamp
         safe_ifup_start_ts=$(date +%s)
-
-        iface="wan"
 
         # Debug
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: invoked (pid=$$)"
@@ -275,8 +283,8 @@ safe_ifup() {
         fi
 
         # Micro sleep
-        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: sleep 3"
-        sleep 3
+        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: sleep 2"
+        sleep 2
 
         # Debug
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: bringing $iface up"
@@ -309,8 +317,8 @@ safe_ifup() {
 
 # ------------------ SIGNAL HANDLING ----------------------------------
 
-# Catch SIGTERM and SIGINT: terminate daemon immediately
-trap cleanup TERM INT
+# Catch SIGTERM, SIGINT and EXIT: terminate daemon and cleanup runtime files
+trap cleanup TERM INT EXIT
 
 # ------------------ MAIN LOOP ----------------------------------------
 
@@ -318,10 +326,10 @@ trap cleanup TERM INT
 count=0
 
 # Check WAN protocol and exit if it is not MBIM or QMI
-lteproto=$(uci -q get network.wan.proto 2>/dev/null)
+lteproto=$(uci -q get network.$iface.proto 2>/dev/null)
 if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
-        logger -t "$logheader" "main: WAN interface is not using mbim or qmi"
-        exit 1
+       logger -t "$logheader" "main: WAN interface is not using mbim or qmi"
+       exit 1
 fi
 
 while true; do
@@ -377,7 +385,7 @@ while true; do
                 logger -t "$logheader" "main: lost connection detected, invoking safe_ifup"
 
                 # Diagnostic: modem status from uqmi/mbim
-                [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: modem status: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind"
+                [ -f "$watchdog_debug_file" ] && logger -t "$logheader" -- "main: modem status: ltestatus=$ltestatus lteerror=$lteerror ltefind=$ltefind"
 
                 # Context: iteration count and delay settings (for tracking reconnection timing)
                 [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: count=$count delay=$delay delay_reconnect=$delay_reconnect"
@@ -388,17 +396,18 @@ while true; do
                 # Execute pre-down script if available
                 [ -x "$watchdog_predown_file" ] && "$watchdog_predown_file"
 
+                # Block external AT command scripts during recovery.
+                # Must be set before safe_ifup to prevent atcmd from running
+                # while the modem is being restarted.
+                touch "$atcmd_block_file"
+
                 # call function safe_ifup
                 safe_ifup
-
-                # Create AT command block file.
-                # This file is used by external tools/scripts (e.g. atcmd) to temporarily
-                # prevent AT commands from being sent to the modem during recovery.
-                touch "$atcmd_block_file"
 
                 # Start ping test in background if not already running
                 if [ ! -f "$ping_lock" ]; then
                         ping_test &
+                        ping_test_pid=$!
                 else
                         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: ping_test already running, skipping"
                 fi
@@ -406,7 +415,15 @@ while true; do
                 # Long delay_reconnect: gives WAN time to stabilize and prevents potential race conditions
                 sleep "$delay_reconnect"
 
-                # Reset reconnection counter after WAN restart; used only for debug/logging purposes
+                # Reset PID reference only if ping_test has already terminated naturally.
+                # In case B (WAN still down after delay_reconnect), ping_test may still be
+                # running up to ping_timeout_sec -- keep PID so cleanup() can kill it.
+                # kill -0 does not send any signal, only checks if process is still alive.
+                if [ -n "$ping_test_pid" ] && ! kill -0 "$ping_test_pid" 2>/dev/null; then
+                        ping_test_pid=""
+                fi
+
+                # Reset reconnection counter after WAN restart
                 count=0
 
                 continue
@@ -427,7 +444,7 @@ while true; do
                         [ -x /root/cleanup_tmp_core.sh ] && timeout --preserve-status -k 2 5 /root/cleanup_tmp_core.sh >/dev/null 2>&1
                 else
                         # Debug log: everything is ok
-                        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: WAN online, everything is ok"
+                        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: WAN online, everything is ok: count=$count"
                 fi
         fi
 
@@ -441,5 +458,3 @@ while true; do
         sleep "$delay"
 
 done
-
-exit 0
