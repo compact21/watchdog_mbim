@@ -20,7 +20,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 else
         # Copy $CONFIG in /tmp/watchdog/mbim.conf
         if [ ! -f "/tmp/watchdog/mbim.conf" ]; then
-                cp "$CONFIG_FILE" "/tmp/watchdog/mbim.conf" || { 
+                cp "$CONFIG_FILE" "/tmp/watchdog/mbim.conf" || {
                 logger -t "$logheader" "init: cannot copy $CONFIG_FILE /tmp/watchdog/mbim.conf"
                 exit 1
                 }
@@ -65,12 +65,17 @@ ping_target=${ping_target:-"8.8.8.8"}                                      # hos
 ping_timeout_sec=${ping_timeout_sec:-300}                                  # maximum time allowed for ping test before marking failure
 ping_lock=${ping_lock:-/tmp/watchdog/ping_lock}                            # lock file to prevent multiple concurrent ping tests
 
-
 # ------------------ Variable to track disconnect status --------------
-
 wan_disconnected=0
 ping_failed_flag="$watchdog_directory/ping_failed"
 ping_test_pid=""
+uqmi_stderr_tmp=""
+
+# ------------------ Variable to track ip address ---------------------
+wan4_available=0
+wan4_device=""
+ip_previous=""
+ip_current=""
 
 # ------------------ LOCK FILE function safe_ifup ---------------------
 # Define lock file path (indicates if another ifup is currently running)
@@ -97,6 +102,15 @@ if [ -n "$missing" ]; then
         exit 1
 fi
 
+# ------------------ MODEMMANAGER CONFLICT CHECK ----------------------
+
+# ModemManager conflicts with uqmi/umbim by competing for modem control.
+# If ModemManager is installed, abort regardless of interface protocol.
+if command -v mmcli >/dev/null 2>&1 || [ -f /usr/sbin/ModemManager ]; then
+        logger -t "$logheader" "init: ModemManager detected, conflicts with uqmi/umbim, exiting"
+        exit 1
+fi
+
 if ! ubus call network.interface.$iface status >/dev/null 2>&1; then
         logger -t "$logheader" "init: WAN interface not found"
         exit 1
@@ -119,8 +133,17 @@ cleanup() {
         [ -n "$LOCKFILE" ]         && rm -f "$LOCKFILE"
         [ -n "$LOCKFILE_DATE" ]    && rm -f "$LOCKFILE_DATE"
         [ -n "$ping_failed_flag" ] && rm -f "$ping_failed_flag"
+        [ -n "$uqmi_stderr_tmp" ]  && rm -f "$uqmi_stderr_tmp"
 
         exit 0
+}
+
+# Get current WAN IP address
+# Requires ${iface}_4 dynamic interface created by MBIM/QMI
+# wan4_available must be 1 for this function to execute
+get_wan_ip() {
+        [ "$wan4_available" -eq 0 ] && return
+        ubus call network.interface.${iface}_4 status 2>/dev/null | jsonfilter -e "@['ipv4-address'][0].address"
 }
 
 # Ping Test
@@ -131,13 +154,27 @@ ping_test() {
         rm -f "$ping_failed_flag"
 
         ping_start_ts=$(date +%s)
+        ping_logged=0
 
         # Debug
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "ping_test: started (timeout=${ping_timeout_sec}s)"
 
         while :; do
+
+                # Debug
+                if [ "$ping_logged" -eq 0 ]; then
+                        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "ping_test: ping target=$ping_target device=${wan4_device:-(none)}"
+                        ping_logged=1
+                fi
+
                 # Send a single ping to check connectivity
-                ping -c 1 -W 1 "$ping_target" >/dev/null 2>&1
+                # If wan4_device is known, bind ping to that interface to avoid
+                # false positives on multi-WAN systems
+                if [ -n "$wan4_device" ]; then
+                        ping -I "$wan4_device" -c 1 -W 1 "$ping_target" >/dev/null 2>&1
+                else
+                        ping -c 1 -W 1 "$ping_target" >/dev/null 2>&1
+                fi
                 ping_error=$?
                 if [ "$ping_error" -eq "0" ]; then
                         now_ts=$(date +%s)
@@ -165,8 +202,8 @@ ping_test() {
 get_lte_status() {
         lte_status_start_ts=$(date +%s)
 
-        max_retries=5       # Maximum number of retries
-        timeout_sec=10      # Timeout for each uqmi call (seconds)
+        max_retries=4       # Maximum number of retries
+        timeout_sec=4       # Timeout for each uqmi call (seconds)
         sleep_between=1     # Sleep between retries (seconds)
         attempt=1
         lteerror=1
@@ -175,12 +212,30 @@ get_lte_status() {
         while [ $attempt -le $max_retries ]; do
                 if [ "$lteproto" = "mbim" ]; then
                         # Query MBIM modem status with timeout
-                        ltestatus=$(timeout "$timeout_sec" uqmi -m -d /dev/cdc-wdm0 --get-data-status 2>/dev/null)
+                        uqmi_stderr_tmp=$(mktemp)
+                        ltestatus=$(timeout "$timeout_sec" uqmi -m -d /dev/cdc-wdm0 --get-data-status 2>"$uqmi_stderr_tmp")
                         lteerror=$?
+                        if [ "$lteerror" -ne 0 ]; then
+                                uqmi_stderr=$(cat "$uqmi_stderr_tmp")
+                                uqmi_stderr=${uqmi_stderr:-"(no stderr output)"}
+                                logger -t "$logheader" "get_lte_status: uqmi mbim failed rc=$lteerror stderr=$uqmi_stderr"
+                                ltestatus=""
+                        fi
+                        rm -f "$uqmi_stderr_tmp"
+                        uqmi_stderr_tmp=""
                 elif [ "$lteproto" = "qmi" ]; then
                         # Query QMI modem status with timeout
-                        ltestatus=$(timeout "$timeout_sec" uqmi -d /dev/cdc-wdm0 --get-data-status 2>/dev/null)
+                        uqmi_stderr_tmp=$(mktemp)
+                        ltestatus=$(timeout "$timeout_sec" uqmi -d /dev/cdc-wdm0 --get-data-status 2>"$uqmi_stderr_tmp")
                         lteerror=$?
+                        if [ "$lteerror" -ne 0 ]; then
+                                uqmi_stderr=$(cat "$uqmi_stderr_tmp")
+                                uqmi_stderr=${uqmi_stderr:-"(no stderr output)"}
+                                logger -t "$logheader" "get_lte_status: uqmi qmi failed rc=$lteerror stderr=$uqmi_stderr"
+                                ltestatus=""
+                        fi
+                        rm -f "$uqmi_stderr_tmp"
+                        uqmi_stderr_tmp=""
                 else
                         # WAN is not MBIM/QMI, treat as disconnected
                         ltestatus=""
@@ -205,7 +260,7 @@ get_lte_status() {
         lte_status_end_ts=$(date +%s)
         lte_status_delta=$((lte_status_end_ts - lte_status_start_ts))
 
-        # Parse connection status evalutate variable ltestatus
+        # Parse connection status evaluate variable ltestatus
         if [ -n "$ltestatus" ]; then
                 ltefind=$(echo "$ltestatus" | grep -c "\"connected\"")
         else
@@ -262,11 +317,12 @@ safe_ifup() {
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: lock acquired"
 
         # check pending state
-        ubus call network.interface.$iface status 2>/dev/null | grep -q '"pending": true' && {
+        check_pending_state=$(ubus call network.interface.$iface status 2>/dev/null | grep '"pending": true')
+        if [ -n "$check_pending_state" ]; then
                 logger -t "$logheader" "safe_ifup: interface $iface is pending, aborting"
                 rm -f "$LOCKFILE" "$LOCKFILE_DATE"
                 return
-        }
+        fi
 
         # Debug
         [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "safe_ifup: bringing $iface down"
@@ -332,12 +388,31 @@ if [ "$lteproto" != "mbim" ] && [ "$lteproto" != "qmi" ]; then
        exit 1
 fi
 
+# Check if dynamic interface ${iface}_4 exists (created by MBIM/QMI for IP assignment)
+# If found, retrieve the physical device for ping binding and IP tracking
+if ubus call network.interface.${iface}_4 status >/dev/null 2>&1; then
+        wan4_available=1
+        wan4_device=$(ubus call network.interface.${iface}_4 status 2>/dev/null | jsonfilter -e '@.device')
+        logger -t "$logheader" "main: ${iface}_4 found, IP tracking enabled"
+else
+        wan4_available=0
+        wan4_device=""
+        logger -t "$logheader" "main: ${iface}_4 not found, IP tracking disabled"
+fi
+
 while true; do
         count=$((count+1))
 
         # Check if watchdog_block_file exists; if yes, skip this iteration
         if [ -f "$watchdog_block_file" ]; then
                 logger -t "$logheader" "main: watchdog_block_file exists ($watchdog_block_file), skipping iteration"
+                sleep "$delay"
+                continue
+        fi
+
+        # Check ModemManager conflict at runtime
+        if command -v mmcli >/dev/null 2>&1 || [ -f /usr/sbin/ModemManager ]; then
+                logger -t "$logheader" "main: ModemManager detected, skipping iteration"
                 sleep "$delay"
                 continue
         fi
@@ -375,7 +450,7 @@ while true; do
         get_lte_status
 
         # Offline detection
-        if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ] ; then
+        if [ "$ltefind" -eq "0" ] || [ "$lteerror" -ne "0" ]; then
 
                 # Event: lost connection detected by modem (MBIM/QMI).
                 # Triggered if:
@@ -432,6 +507,22 @@ while true; do
 
         # Online status
         if [ "$ltefind" -eq 1 ] && [ "$lteerror" -eq 0 ]; then
+
+                # Update current IP and check for changes
+                # Note: IP change is detected after delay_reconnect seconds (default 120s).
+                # The actual change occurred earlier, during the reconnect event.
+                # ip_previous holds the last known IP before the disconnect.
+                if [ "$wan4_available" -eq 1 ]; then
+                        ip_current=$(get_wan_ip)
+                        if [ -n "$ip_previous" ] && [ -n "$ip_current" ] && [ "$ip_previous" != "$ip_current" ]; then
+                                logger -t "$logheader" "main: IP changed after reconnect: $ip_previous -> $ip_current"
+                        fi
+                        # Update ip_previous only if ip_current is valid
+                        if [ -n "$ip_current" ]; then
+                                ip_previous="$ip_current"
+                        fi
+                fi
+
                 if [ "$wan_disconnected" -eq 1 ]; then
                         # Execute post-up script if available
                         [ -x "$watchdog_postup_file" ] && "$watchdog_postup_file"
@@ -444,7 +535,13 @@ while true; do
                         [ -x /root/cleanup_tmp_core.sh ] && timeout --preserve-status -k 2 5 /root/cleanup_tmp_core.sh >/dev/null 2>&1
                 else
                         # Debug log: everything is ok
-                        [ -f "$watchdog_debug_file" ] && logger -t "$logheader" "main: WAN online, everything is ok: count=$count"
+                        if [ -f "$watchdog_debug_file" ]; then
+                                if [ -n "$ip_current" ]; then
+                                        logger -t "$logheader" "main: WAN online, everything is ok: count=$count ip=$ip_current"
+                                else
+                                        logger -t "$logheader" "main: WAN online, everything is ok: count=$count"
+                                fi
+                        fi
                 fi
         fi
 
