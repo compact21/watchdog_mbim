@@ -11,20 +11,43 @@ LOGHEADER="watchdog_mbim"
 # Optional debug files (enable via touching)
 WATCHDOG_DEBUG_FILE="/tmp/watchdog/mbim_debug"
 
-# Configuration check require
-if [ ! -f "$CONFIG_FILE" ]; then
-    logger -t "$LOGHEADER" "Configuration file $CONFIG_FILE missing, exiting"
-    exit 1
-fi
-
-boot() {
-        # Service must NOT start automatically at boot.
-        # It is started manually ~10 minutes after boot (via rc.local / at).
-        return 0
-}
-
 start_service() {
+    # Required binary check
+    if [ ! -x "$PROG" ]; then
+        logger -t "$LOGHEADER" "Cannot start: executable not found or not executable ($PROG)"
+        return 1
+    fi
+
+    # Verify that the configuration file exists
+    if [ ! -f "$CONFIG_FILE" ]; then
+        logger -t "$LOGHEADER" "Cannot start: configuration file not found ($CONFIG_FILE)"
+        return 1
+    fi
+
     logger -t "$LOGHEADER" "Starting watchdog_mbim service"
+
+    # Ensure runtime directory exists.
+    # The daemon also creates it internally, but doing it here guarantees
+    # the debug file can be touched before the process starts.
+    mkdir -p /tmp/watchdog 2>/dev/null
+
+    # Clean up stale files and lock directories from previous crash/force kill.
+    # Lock dirs (/tmp/lock/watchdog_mbim.lock, /tmp/watchdog/ping_lock) are created
+    # with atomic mkdir - use rmdir (not rm -rf) to avoid accidentally deleting a
+    # non-empty directory if the path is ever misconfigured.
+    rmdir /tmp/lock/watchdog_mbim.lock 2>/dev/null
+    rmdir /tmp/watchdog/ping_lock 2>/dev/null
+    rm -f /tmp/watchdog/ping_failed 2>/dev/null
+    rm -f /tmp/watchdog/ping_once_force_fail 2>/dev/null
+    rm -f /tmp/watchdog/atcmd_block 2>/dev/null
+    rm -f /tmp/watchdog/ifup_lock 2>/dev/null
+    rm -f /tmp/watchdog/ifup_lock_date 2>/dev/null
+
+    # Enable debug logging for watchdog_mbim.
+    # The presence of this file enables verbose syslog output from the daemon.
+    # Uncomment the following lines to enable verbose debugging.
+    #touch "$WATCHDOG_DEBUG_FILE"
+    #logger -t "$LOGHEADER" "watchdog_mbim debug enabled ($WATCHDOG_DEBUG_FILE)"
 
     procd_open_instance
     procd_set_param command "$PROG"
@@ -35,7 +58,6 @@ start_service() {
     procd_set_param stderr 1
     procd_close_instance
 }
-
 
 stop_service() {
     logger -t "$LOGHEADER" "Stopping watchdog_mbim service"
@@ -49,6 +71,8 @@ help() {
     echo "  start    Start the watchdog daemon"
     echo "  stop     Stop the watchdog daemon"
     echo "  restart  Restart the watchdog daemon"
+    echo "  enable   Enable autostart at boot"
+    echo "  disable  Disable autostart at boot"
     echo "  help     Show this message"
     echo
     echo "Configuration file: $CONFIG_FILE"
@@ -63,13 +87,19 @@ help() {
     echo
 }
 
-#service_triggers() {
-#        # from "https://forum.openwrt.org/t/procd-init-interface-trigger-for-non-daemon-executables-that-are-not-running-permanently/58258/8"
+# Reference:
+# https://forum.openwrt.org/t/procd-init-interface-trigger-for-non-daemon-executables-that-are-not-running-permanently/58258/8
 #
-#        # triggers test, after giving the "ifdown wan" command you should see an event with the command:
-#        # ubus monitor | grep '"method":"up","data":{"interface":"wan"}}'
-#        # and as a consequence of this it should restart the service
-#        procd_open_trigger
-#        procd_add_interface_trigger "interface.*.up" "wan" "/etc/init.d/watchdog_mbim restart"
-#        procd_close_trigger
+# Example procd/netifd interface trigger kept for reference only.
+# Not enabled for watchdog_mbim because LTE/MBIM connectivity does not
+# reliably map to netifd interface state events on all platforms.
+#
+# Test:
+#   ifdown wan
+#   ubus monitor | grep '"method":"up","data":{"interface":"wan"}}'
+#
+#service_triggers() {
+#    procd_open_trigger
+#    procd_add_interface_trigger "interface.*.up" "wan" "/etc/init.d/watchdog_mbim restart"
+#    procd_close_trigger
 #}
